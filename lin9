@@ -1,11 +1,52 @@
 #! /bin/bash -
 
+bsp_val=$1
+kernel_val=$2
+testing_type=$3
+
+Zeus="base"
+Zeus="cgp"
+#rootfs path: ./tmp/work/intel_skylake_avx512_64-wrs-linux/wrlinux-image-glibc-std/1.0-r5/rootfs/opt/wr-test/testcases
+
+if [ "$Zeus" = "base" ];then
+    echo "For base wrlinux..."
+DVD="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
+#DVD="/folk/lpg-build/cdc/fast_prod/wrlinux90RCPL/RCPL0002_LX01/wrlinux-9"
+ROOTFS_TYPE="wrlinux-image-glibc-std"
+EXTRA_CMD=""
+distros_val="wrlinux-std-sato"
+other_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
+elif [ "$Zeus" = "cgp" ];then
+    echo "For cgp..." 
+DVD="/net/pek-lpgtest15/buildarea1/jhu2/WRLINUX_9_LTS/wrlinux-x/"
+ROOTFS_TYPE="wrlinux-image-glibc-cgl"
+EXTRA_CMD="--layers wr-cgl"
+distros_val="wrlinux-cgl"
+other_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
+    echo "Kernel type is only supported cgl."
+kernel_val=cgl
+fi
+
+
+usage()
+{
+cat <<EOF
+
+Usage:
+$0 bsp_type kernel_type testing_type
+E.g.
+
+$0 intel-skylake-avx512-64 rt bts
+$0 intel-skylake-avx512-64 bts --using standard kernel by default
+EOF
+}
+
 kts()
 {
     echo "Doing kts..."
     grep "wr-kts" conf/local.conf
     if [ $? -ne 0 ];then
-        bitbake-layers add-layer /net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing/kts-dev
+        bitbake-layers add-layer ${other_layer}/kts-dev
         echo require templates/feature/wr-kts/template.conf >> conf/local.conf
         echo "BB_NO_NETWORK_pn-lmbench = '0'" >> conf/local.conf
         echo "Appended wr-kts into conf/local.conf"
@@ -19,7 +60,7 @@ ltp()
     echo "Doing ltp..."
     grep "ltp" conf/local.conf
     if [ $? -ne 0 ];then
-        bitbake-layers add-layer /net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing/kts-dev
+        bitbake-layers add-layer ${other_layer}/kts-dev
         echo require ./templates/feature/ltp/template.conf >> conf/local.conf
         echo "Appended ltp into conf/local.conf"
     else
@@ -32,7 +73,7 @@ bts()
     echo "Doing bts..."
     grep "bts" conf/local.conf
     if [ $? -ne 0 ];then
-        bitbake-layers add-layer /net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing/bts-dev
+        bitbake-layers add-layer ${other_layer}/bts-dev
         echo require templates/feature/bts/template.conf >> conf/local.conf
         echo "Appended bts into conf/local.conf"
     else
@@ -49,21 +90,35 @@ no_testing()
     sed "/BB_NO_NETWORK_pn-lmbench/d" conf/local.conf -i
 }
 
-bsp_val=$1
+#[ -z "$testing_type" ] && testing_type=$3
+inject_testing()
+{
+    echo $testing_type
+    if [ "$testing_type" = "bts" -o "$testing_type" = "bsp" ];then
+        bts
+    elif [ "$testing_type" = "kts" ];then
+        kts
+    elif [ "$testing_type" = "ltp" ];then
+        ltp
+    else
+        echo "Not specified testing type,without any testing layers"
+        no_testing
+    fi
+}
+
+[ $# -gt 3 ] && { echo "Please input <=3 options";usage;exit 1; }
 
 if [ -z "$bsp_val" ];then
-    echo yes | /net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9/setup.sh --list-machines
+    echo yes | ${DVD}/wrlinux-9/setup.sh --list-machines
     echo "Need one machine name at latest!!!"
     exit 1
 fi
 
-#distros_val=$2
+#distros_val=$4
 #if [ -z "$distros_val" ];then
 #    /net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9/setup.sh --list-distros
 #fi
 
-kernel_val=$2
-testing_type=
 if [ "$kernel_val" = "bts" -o "$kernel_val" = "kts" -o "$kernel_val" = "ltp" ]; then
     testing_type=$kernel_val
     kernel_val="standard"
@@ -79,42 +134,28 @@ else
         kernel_val="standard"
     elif [ "$kernel_val" = "rt" ];then
         kernel_val="preempt-rt"
+    elif [ "$kernel_val" = "cgl" ];then
+        kernel_val="cgl"
     else
         echo "$kernel_val is wrong krenel type!!!"
         exit 1
     fi
 fi
 
-[ -z "$testing_type" ] && testing_type=$3
-dog()
-{
-    echo $testing_type
-    if [ "$testing_type" = "bts" ];then
-        bts
-    elif [ "$testing_type" = "kts" ];then
-        kts
-    elif [ "$testing_type" = "ltp" ];then
-        ltp
-    else
-        echo "Not specified testing type,without any testing layers"
-        no_testing
-    fi
-}
-
 #main
 if [ "$bsp_val" = "intel-skylake-avx512-64" ];then
-    echo "/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=wrlinux-std-sato --base-url git://pek-git.wrs.com --dl-layers"
-    eval "echo yes | /net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=wrlinux-std-sato --base-url git://pek-git.wrs.com --dl-layers"
+    echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
+    eval "echo yes | $DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
 else
-    echo "/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9/setup.sh --machines=$bsp_val --kernel=$kernel_val --base-url git://pek-git.wrs.com --dl-layers"
-    eval "echo yes | /net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9/setup.sh --machines=$bsp_val --kernel=$kernel_val --base-url git://pek-git.wrs.com --dl-layers"
+    echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
+    eval "echo yes | $DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
 fi
 . ./environment-setup-x86_64-wrlinuxsdk-linux
 . ./oe-init-build-env build
 
-dog
+inject_testing
 
 #echo IMAGE_FSTYPES += \"tar.bz2\" >> conf/local.conf
-echo "bitbake wrlinux-image-glibc-std"
-bitbake wrlinux-image-glibc-std
+echo "bitbake $ROOTFS_TYPE"
+bitbake $ROOTFS_TYPE
 
