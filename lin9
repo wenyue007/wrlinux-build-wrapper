@@ -110,6 +110,12 @@ build_next()
     echo LINUX_KERNEL_TYPE = \"$kernel_val\" >> conf/local.conf
     echo "bitbake $ROOTFS_TYPE"
     bitbake $ROOTFS_TYPE
+
+    if [ -d ./tmp/buildstats ]; then
+        new=`find ./tmp/buildstats/ -name do_image_complete 2>/dev/null`
+    else
+        new="FAILED"
+    fi
 }
 
 #main
@@ -207,9 +213,4 @@ fi
 
 build_next
 
-if [ -d ./tmp/buildstats ]; then
-    new=`find ./tmp/buildstats/ -name do_image_complete 2>/dev/null`
-else
-    new="FAILED"
-fi
 python ~/scripts/sendmail_new.py $new $testing_type
