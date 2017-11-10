@@ -17,8 +17,11 @@ build_time = time.ctime(time.time())
 sender = 'wr-taf@windriver.com'
 receivers = ['jianwei.hu@windriver.com']
 
-more_file = 'cat '+sys.argv[1]
-(status1, output1) = commands.getstatusoutput(more_file)
+if sys.argv[1] == "FAILED":
+     output1 = "FAILED"
+else:
+     more_file = 'cat '+sys.argv[1]
+     (status1, output1) = commands.getstatusoutput(more_file)
 
 content='['+build_time+']'+"Build server and path:   \n"+hostname+":"+path+" \n"+"Logs:--->\n"+ output1
 message = MIMEText(content, 'plain', 'utf-8')
