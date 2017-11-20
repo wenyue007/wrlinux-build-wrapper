@@ -35,6 +35,23 @@ remember_his()
     [ $? != 0 ] && echo "$0 $bsp_val $kernel_val $testing_type" >> $hist
 }
 
+us()
+{
+    echo "Doing userspace..."
+    grep "userspace-test" conf/local.conf
+    if [ $? -ne 0 ];then
+        if [ X"$testing_type" == X"us" ];then
+            cp /folk/jhu2/scripts/test_plan.list .
+        fi
+        bitbake-layers add-layer ${other_layer}/userspace
+        echo 'WRTEMPLATE_append = " feature/userspace-test "' >> conf/local.conf
+        echo 'IMAGE_ROOTFS_EXTRA_SPACE = "5242880"' >> conf/local.conf
+        echo "Appended userspace into conf/local.conf"
+    else
+        echo "userspace already existed"
+    fi
+}
+
 kts()
 {
     echo "Doing kts..."
@@ -93,6 +110,8 @@ inject_testing()
         kts
     elif [ "$testing_type" = "ltp" ];then
         ltp
+    elif [ "$testing_type" = "us" ];then
+        us
     else
         echo "Not specified testing type,without any testing layers"
         no_testing
@@ -105,6 +124,7 @@ build_next()
     . ./oe-init-build-env build
     
     inject_testing
+    echo "BB_NO_NETWORK = '0'" >> conf/local.conf
     
     #echo IMAGE_FSTYPES += \"tar.bz2\" >> conf/local.conf
     echo LINUX_KERNEL_TYPE = \"$kernel_val\" >> conf/local.conf
@@ -122,8 +142,6 @@ build_next()
 [ $# -lt 3 ] && { echo "Please input 3 parameters";usage;exit 1; }
 [ $# -gt 4 ] && { echo "Please input 3 parameters";usage;exit 1; }
 
-#record command line into $home/.myhist
-remember_his
 
 for opt1 in $@
 do
@@ -131,7 +149,7 @@ do
         git|dvd)
                       wherego=$opt1
                       ;;
-        bts|kts|ltp)
+        bts|kts|ltp|us)
                       testing_type=$opt1
                       ;;
         rt|std|cgl)
@@ -190,6 +208,10 @@ elif [ "$Zeus" = "cgp" ];then
     kernel_val=cgl
 fi
 
+if [ X"$testing_type" == X"us" ];then
+    EXTRA_CMD=$EXTRA_CMD" --templates feature/test,feature/gdbserver,feature/gdb,feature/debug,feature/kernel-debug,feature/acl,feature/LAMP,feature/test --layer meta-filesystems,meta-xfce "
+fi
+
 if [ -z "$kernel_val" ];then
     kernel_val="standard"
 elif [ "$kernel_val" = "std" ];then
@@ -203,6 +225,9 @@ else
     exit 1
 fi
 
+#record command line into $home/.myhist
+remember_his
+
 if [ "$bsp_val" = "intel-skylake-avx512-64" ];then
     echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
     eval "echo yes | $DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
@@ -210,6 +235,7 @@ else
     echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
     eval "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
 fi
+
 
 build_next
 
