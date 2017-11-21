@@ -18,12 +18,14 @@ usage()
 cat <<EOF
 
 Usage:
-$0 bsp_machine [rt|std|cgl] [bts|kts|ltp] [git|dvd]
+$0 bsp_machine [rt|std|cgl|multilib] [bts|kts|ltp] [git|dvd]
 $0 list
 $0 hist
 E.g.
 
 $0 intel-skylake-avx512-64 rt bts dvd
+
+Note: Multilib if rt kernel by default.
 EOF
 }
 
@@ -152,9 +154,10 @@ do
         bts|kts|ltp|us)
                       testing_type=$opt1
                       ;;
-        rt|std|cgl)
+        rt|std|cgl|multilib)
                       kernel_val=$opt1
                       [ X"$kernel_val" == X"cgl" ] && Zeus="cgp"
+                      [ X"$kernel_val" == X"multilib" ] && Zeus="multilib"
                       ;;
         ultimate|*)
                       bsp_val=$opt1
@@ -181,7 +184,8 @@ if [ X"$wherego" == X"dvd" ];then
 else
     echo "By using GIT source..."
     if [ X"$kernel_val" == X"cgl" ];then
-        DVD="/net/pek-lpgtest15/buildarea1/jhu2/WRLINUX_9_LTS/wrlinux-x/"
+        #DVD="/net/pek-lpgtest15/buildarea1/jhu2/WRLINUX_9_LTS/wrlinux-x/"
+        DVD="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
     else
         DVD="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
     fi
@@ -195,6 +199,13 @@ if [ "$Zeus" = "base" ];then
     ROOTFS_TYPE="wrlinux-image-glibc-std"
     EXTRA_CMD="--accept-eula=yes"
     #distros_val="wrlinux-std-sato"
+    distros_val="wrlinux"
+    other_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
+elif [ "$Zeus" = "multilib" ];then
+    echo "For 32bit multilib wrlinux..."
+    sleep 5
+    ROOTFS_TYPE="lib32-wrlinux-image-glibc-std"
+    EXTRA_CMD="--accept-eula=yes"
     distros_val="wrlinux"
     other_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
 elif [ "$Zeus" = "cgp" ];then
@@ -216,6 +227,8 @@ if [ -z "$kernel_val" ];then
     kernel_val="standard"
 elif [ "$kernel_val" = "std" ];then
     kernel_val="standard"
+elif [ "$kernel_val" = "multilib" ];then
+    kernel_val="preempt-rt"
 elif [ "$kernel_val" = "rt" ];then
     kernel_val="preempt-rt"
 elif [ "$kernel_val" = "cgl" ];then
