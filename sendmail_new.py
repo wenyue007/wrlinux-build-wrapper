@@ -22,7 +22,7 @@ if sys.argv[1] == "FAILED":
 else:
      more_file = 'cat '+sys.argv[1]
      (status1, output1) = commands.getstatusoutput(more_file)
-     more_file2 = 'cd layers;git log'
+     more_file2 = 'git log'
      (status1, output2) = commands.getstatusoutput(more_file2)
 
 content='['+build_time+']'+"Build server and path:   \n"+hostname+":"+path+" \n"+"Logs:--->\n"+ output2 +"\n" + output1
