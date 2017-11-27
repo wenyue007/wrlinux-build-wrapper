@@ -261,5 +261,5 @@ fi
 
 build_next
 
-[ -z "$testing_type" ] & testing_type="No_Testing_Suites"
+[ -z "$testing_type" ] && testing_type="No_Testing_Suites"
 python ~/scripts/sendmail_new.py $new $testing_type
