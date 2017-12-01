@@ -255,11 +255,12 @@ if [ "$bsp_val" = "intel-skylake-avx512-64" ];then
     eval "echo yes | $DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
 else
     echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
+    echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD" > build.cmd
     eval "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
 fi
 
 
 build_next
 
-[ -z "$testing_type" ] & testing_type="No_Testing_Suites"
+[ -z "$testing_type" ] && testing_type="No_Testing_Suites"
 python ~/scripts/sendmail_new.py $new $testing_type
