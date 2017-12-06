@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 #Author: jianwei.hu@windriver.com
+#Date: 2017/12/6
 
 import sys
 import commands
