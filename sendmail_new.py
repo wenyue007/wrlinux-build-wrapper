@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# jianwei.hu@windriver.com
+#Author: jianwei.hu@windriver.com
 
 import sys
 import commands
