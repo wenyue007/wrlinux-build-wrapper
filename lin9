@@ -1,45 +1,168 @@
 #! /bin/bash -
-#Author: Jianwei.Hu@windriver.com
-#Date: 2017/12/5
+#Owner: Jianwei.Hu@windriver.com
 
 full_args=$@
-kdump="close_k"
-Zeus="base"
-
-if [ X"$1" == X"list" ];then
-    DVD="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
-    echo "Show all supported machines..."
-    echo yes | ${DVD}/setup.sh --list-machines
-    rm -rf bin config .gitconfig
-    exit 0
-elif [ X"$1" == X"hist" ];then
-    cat /folk/`whoami`/.myhist
-    exit 0
-fi
+cgl_f="no"
+small_f="no"
+multilib_f="no"
+tpm_f="no"
+sato_f="no"
+dpdk_f="no"
+kdump_f="no"
+nodistro_f="no"
+EXTRA_CMD="--accept-eula=yes"
+EXTRA_templates="--templates "
+EXTRA_layers="--layers "
 
 usage()
 {
 cat <<EOF
 
 Usage:
-$0 bsp_machine [rt|std|cgl|multilib] [bts|kts|ltp] [git|dvd]
-$0 list
+$0 [lin9|lts17|lts18] bsp_machine [rt|std] cgl|sato multilib|tpm|kdump|dpdk [none|bts|kts|ltp|us] [git|dvd] dry
 $0 hist
 E.g.
 
-$0 intel-skylake-avx512-64 rt bts dvd
+$0 intel-x86-64 rt bts dvd
 
-Note: Multilib if rt kernel by default.
+Note: cgl has std kernel by default.
 EOF
 }
 
+#This emit() will set your setting into conf/local.conf
+emit()
+{
+    #for " emit ' XXX '
+    #for ' emit " XXX "
+cat << EOF >> conf/local.conf
+$@
+EOF
+}
+
+
+#If you want to add some extra packages into rootfs, please add below similar function.
+
+#    echo "Will add $FUNCNAME into conf/local.conf"
+#    echo "Adding $FUNCNAME into conf/local.conf..."
+#    echo "Added $FUNCNAME into conf/local.conf"
+
+
+invalid_image_install_append_iperf3()
+{
+    echo "Will add $FUNCNAME into conf/local.conf"
+    emit 'IMAGE_INSTALL_append = " iperf3"'
+    echo "Added $FUNCNAME into conf/local.conf"
+}
+
+image_install_append_dpdk-examples-test()
+{
+    echo "Will add $FUNCNAME into conf/local.conf"
+    if [ X"$dpdk_f" == X"yes" ];then
+        echo "Adding $FUNCNAME into conf/local.conf..."
+        emit 'IMAGE_INSTALL_append = " dpdk-examples dpdk-test"'
+        echo "Added $FUNCNAME into conf/local.conf"
+    fi
+}
+
+bug_workaround()
+{
+    echo "Will do bug workaround into conf/local.conf"
+    #echo "BB_NO_NETWORK = '0'" >> conf/local.conf
+    if [ X"$bsp_val" = X"nxp-ls1046_invalid" ];then
+        emit '
+BB_NO_NETWORK_pn-ppa = "0"
+BB_NO_NETWORK_pn-fmlib = "0"
+BB_NO_NETWORK_pn-fmc = "0"
+        '
+    fi
+
+    if [ X"$testing_type" == X"us" ];then
+        emit "
+PNWHITELIST_networking-layer += 'samba'
+PNWHITELIST_filesystems-layer += 'fuse'
+PNWHITELIST_openembedded-layer += 'logwarn'
+PNWHITELIST_openembedded-layer += 'inotify-tools'
+PNWHITELIST_openembedded-layer += 'dfu-util'
+PNWHITELIST_networking-layer += 'libtevent'
+PNWHITELIST_openembedded-layer += 'openldap'
+PNWHITELIST_networking-layer += 'libldb'
+PNWHITELIST_networking-layer += 'libtdb'
+        "
+    fi
+}
+
+#If you want to add some extra options into setup.sh, please add below similar function.
+select_template_kdump()
+{
+    if [ X"$kdump_f" == X"open_k" ];then
+        echo "Setting kdump template..."
+        EXTRA_templates=$EXTRA_templates" feature/kexec feature/kdump "
+    fi
+}
+
+select_template_tpm()
+{
+    if [ X"$tpm_f" == X"yes" ];then
+        echo "Setting tpm template..."
+        EXTRA_templates=$EXTRA_templates" feature/tpm2 "
+    fi
+}
+
+select_template_dpdk()
+{
+    if [ X"$dpdk_f" == X"yes" ];then
+        echo "Setting dpdk template and layer..."
+        EXTRA_templates=$EXTRA_templates" feature/dpdk feature/bsp-extras "
+        EXTRA_layers=$EXTRA_layers" meta-dpdk"
+    fi
+}
+
+select_template_extra_us()
+{
+    if [ X"$testing_type" == X"us" ];then
+        echo "Setting extra templates and layers for us testing layer..."
+        EXTRA_templates=$EXTRA_templates" feature/LAMP feature/gdb feature/krb5 feature/lttng feature/ntp feature/system-stats feature/test feature/xfce "
+        EXTRA_layers=$EXTRA_layers" meta-filesystems meta-virtualization meta-xfce "
+    fi
+}
+
+invalid_select_template_bug_workaround_append()
+{
+    echo "Will do $FUNCNAME ..." 
+    if [ X"$testing_type" == X"bts" ];then
+        echo "Will add yaffs2 into bts ..." 
+        EXTRA_templates=$EXTRA_templates" feature/yaffs2-utils "
+    fi
+}
+
+#Standard function from the following func.
+# aaa
+# bbb
+# ccc
+# ddd
+# eee
 remember_his()
 {
     hist="/folk/`whoami`/.myhist"
     touch $hist
     #grep -w "$0 $bsp_val $kernel_val $testing_type" $hist
-    grep -w "$0 $full_args" $hist
+    grep -w "$0 $full_args" $hist &> /dev/null
     [ $? != 0 ] && echo "$0 $full_args" >> $hist
+}
+
+real_kernel()
+{
+    if [ -z "$kernel_val" ];then
+        kernel_val="linux-yocto"
+    elif [ "$kernel_val" = "std" ];then
+    #    kernel_val="linux-yocto-dev"
+        kernel_val="linux-yocto"
+    elif [ "$kernel_val" = "rt" ];then
+        kernel_val="linux-yocto-rt"
+    else
+        echo "$kernel_val is wrong krenel type!!!MUST have [std|rt]"
+        exit 1
+    fi
 }
 
 us()
@@ -50,9 +173,9 @@ us()
         if [ X"$testing_type" == X"us" ];then
             cp /folk/jhu2/scripts/test_plan.list .
         fi
-        bitbake-layers add-layer ${other_layer}/userspace
-        echo 'WRTEMPLATE_append = " feature/userspace-test "' >> conf/local.conf
-        echo 'IMAGE_ROOTFS_EXTRA_SPACE = "5242880"' >> conf/local.conf
+        bitbake-layers add-layer ${testing_layer}/userspace
+        emit 'WRTEMPLATE_append = " feature/userspace-test "'
+        emit 'IMAGE_ROOTFS_EXTRA_SPACE = "2242880"'
         echo "Appended userspace into conf/local.conf"
     else
         echo "userspace already existed"
@@ -64,9 +187,9 @@ kts()
     echo "Doing kts..."
     grep "wr-kts" conf/local.conf
     if [ $? -ne 0 ];then
-        bitbake-layers add-layer ${other_layer}/kts-dev
-        echo require templates/feature/wr-kts/template.conf >> conf/local.conf
-        echo "BB_NO_NETWORK_pn-lmbench = '0'" >> conf/local.conf
+        bitbake-layers add-layer ${testing_layer}/kts-dev
+        emit "require templates/feature/wr-kts/template.conf"
+        emit "BB_NO_NETWORK_pn-lmbench = '0'"
         echo "Appended wr-kts into conf/local.conf"
     else
         echo "wr-kts already existed"
@@ -78,11 +201,24 @@ ltp()
     echo "Doing ltp..."
     grep "ltp" conf/local.conf
     if [ $? -ne 0 ];then
-        bitbake-layers add-layer ${other_layer}/kts-dev
-        echo require templates/feature/ltp/template.conf >> conf/local.conf
+        bitbake-layers add-layer ${testing_layer}/kts-dev
+        emit "require templates/feature/ltp/template.conf"
         echo "Appended ltp into conf/local.conf"
     else
         echo "lpt already existed"
+    fi
+}
+
+benchmark()
+{
+    echo "Doing benchmark..."
+    grep "benchmark" conf/local.conf
+    if [ $? -ne 0 ];then
+        bitbake-layers add-layer ${testing_layer}/benchmark-dev
+        emit "require templates/feature/benchmark/template.conf"
+        echo "Appended benchmark into conf/local.conf"
+    else
+        echo "benchmark already existed"
     fi
 }
 
@@ -91,8 +227,8 @@ bts()
     echo "Doing bts..."
     grep "bts" conf/local.conf
     if [ $? -ne 0 ];then
-        bitbake-layers add-layer ${other_layer}/bts-dev
-        echo require templates/feature/bts/template.conf >> conf/local.conf
+        bitbake-layers add-layer ${testing_layer}/bts-dev
+        emit "require templates/feature/bts/template.conf"
         echo "Appended bts into conf/local.conf"
     else
         echo "bts already existed"
@@ -102,7 +238,7 @@ bts()
 no_testing()
 {
     echo "Clearing all testing layers..."
-    sed "/templates\/feature\/wr-kts\/template.conf/d" conf/local.conf -i 
+    sed "/templates\/feature\/wr-kts\/template.conf/d" conf/local.conf -i
     sed "/templates\/feature\/bts\/template.conf/d" conf/local.conf -i
     sed "/templates\/feature\/ltp\/template.conf/d" conf/local.conf -i
     sed "/BB_NO_NETWORK_pn-lmbench/d" conf/local.conf -i
@@ -110,7 +246,7 @@ no_testing()
 
 inject_testing()
 {
-    echo $testing_type
+    echo "Setting testing layer: $testing_type ..."
     if [ "$testing_type" = "bts" -o "$testing_type" = "bsp" ];then
         bts
     elif [ "$testing_type" = "kts" ];then
@@ -119,53 +255,286 @@ inject_testing()
         ltp
     elif [ "$testing_type" = "us" ];then
         us
+    elif [ "$testing_type" = "bench" ];then
+        benchmark
+    elif [ "$testing_type" = "none" ];then
+        echo "Without testing layer..."
     else
         echo "Not specified testing type,without any testing layers"
         no_testing
     fi
 }
 
+product_select()
+{
+    case $product in
+        lin9)
+               testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
+               DVD_path="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
+               DVD_rcpl="/folk/lpg-build/cdc/fast_prod/wrlinux90RCPL/"
+               ;;
+        lts17)
+               testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl17-testing/wrlinux/wr-testing"
+               DVD_path="/lpg-build/cdc/fast_prod/WRL10_17/WRL10_17_GIT/wrlinux-10"
+               DVD_rcpl="/folk/lpg-build/cdc/fast_prod/WRL10_17/"
+               ;;
+        lts18)
+               testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrlinux/wr-testing"
+               #DVD_base="/lpg-build/cdc/fast_prod/WRL10_18/"
+               DVD_path="/lpg-build/cdc/fast_prod/WRL10_18/WRL10_18_GIT/wrlinux-10"
+               DVD_rcpl="/folk/lpg-build/cdc/fast_prod/WRL10_18/"
+               ;;
+        *)
+               echo "please input correct product...[lin9|lts17|lts18]"
+               exit 1
+               ;;
+     esac
+}
+
+git_dvd()
+{
+    wherego=${wherego:-"git"}
+    
+    if [ X"$wherego" == X"dvd" ];then
+        echo "Will use DVD source..."
+        DVD_1=`ls -lrt $DVD_rcpl| tail -1|awk -F" " '{print $NF}'`
+        DVD="${DVD_rcpl}${DVD_1}/wrlinux-10"
+        read -n1 -t 10 -p "$DVD ???[y]";echo ""
+        if [ X"$REPLY" = X"n" ];then
+            read -t 300 -p "Please input your DVD path:" DVD_2
+            [ -z "$DVD_2" ] && exit 1
+            DVD="$DVD_2/"
+            echo "Your DVD is: $DVD"
+        else
+            echo "Selected DVD: $DVD"
+        fi
+    else
+        echo "Will use GIT source..."
+        DVD=$DVD_path
+    fi
+}
+
+select_dist_rootfs()
+{
+    if [ X"$cgl_f" = X"yes" ];then
+        echo "Setting cgl distro..."
+        distros_val="wrlinux-cgl"
+        ROOTFS_TYPE="wrlinux-image-glibc-cgl"
+    elif [ X"$nodistro_f" = X"yes" ];then
+        echo "setting nodistro..."
+        distros_val="nodistro"
+        ROOTFS_TYPE="core-image-base"
+    elif [ X"$small_f" = X"yes" ];then
+        echo "setting wrlinux-small distro..."
+        distros_val="wrlinux-small"
+        ROOTFS_TYPE="wrlinux-image-glibc-small"
+    elif [ X"$sato_f" = X"yes" ];then
+        echo "setting sato distro..."
+        distros_val="wrlinux-std-sato"
+        ROOTFS_TYPE="wrlinux-image-glibc-std-sato"
+    elif [ X"$multilib_f" = X"yes" ]; then
+        echo "Setting 32bit multilib wrlinux..."
+        sleep 5
+        distros_val="wrlinux"
+        ROOTFS_TYPE="lib32-wrlinux-image-glibc-std"
+    else
+        echo "Setting base linux testing..."
+        distros_val="wrlinux"
+        ROOTFS_TYPE="wrlinux-image-glibc-std"
+    fi
+
+}
+
+local_conf()
+{
+    echo "Will append some contents into conf/local.conf ..."
+    if [ "$kernel_val" == "linux-yocto-rt-workaround" ];then
+        emit 'PREFERRED_PROVIDER_virtual/kernel = "linux-yocto-rt"'
+        emit 'PREFERRED_VERSION_linux-yocto-rt = "4.14%"'
+    else
+        emit "PREFERRED_PROVIDER_virtual/kernel = \"$kernel_val\""
+    fi
+   #see select_template_tpm()
+   # if [ X"$tpm_f" = X"yes" ];then
+   #     echo "WRTEMPLATE_append = \"feature/tpm2\"" >> conf/local.conf 
+   # fi
+    find_me_in_local
+    bug_workaround
+
+    [ X"`grep "IMAGE_ROOTFS_EXTRA_SPACE" conf/local.conf`" = X"" ] && \
+    emit 'IMAGE_ROOTFS_EXTRA_SPACE = "1024000"'
+}
+
+build_cmd_log()
+{
+    echo "Build log capture starting..."
+    echo " " > build.cmd
+    echo "$0 $full_args" >> build.cmd
+    echo " " >> build.cmd
+    echo "TEST_STEP" >> build.cmd
+    echo "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full" >> build.cmd
+    echo ". ./environment-setup-x86_64-wrlinuxsdk-linux" >> build.cmd
+    echo ". ./oe-init-build-env build" >> build.cmd
+    if [ X"$testing_type" = X"bts" ];then
+        echo "bitbake-layers add-layer ${testing_layer}/bts-dev"  >> build.cmd
+        echo "echo require templates/feature/bts/template.conf >> conf/local.conf" >> build.cmd
+    elif [ X"$testing_type" = X"ltp" ];then
+        echo "bitbake-layers add-layer ${testing_layer}/kts-dev"  >> build.cmd
+        echo "echo require templates/feature/ltp/template.conf >> conf/local.conf" >> build.cmd
+    elif [ X"$testing_type" = X"kts" ];then
+        echo "bitbake-layers add-layer ${testing_layer}/kts-dev"  >> build.cmd
+        echo "echo require templates/feature/wr-kts/template.conf >> conf/local.conf" >> build.cmd
+    fi
+    echo "echo PREFERRED_PROVIDER_virtual/kernel = \"$kernel_val\" >> conf/local.conf" >> build.cmd
+    echo "bitbake $ROOTFS_TYPE" >> build.cmd
+    echo " " >> build.cmd
+}
+
+build_cmd_log_post()
+{
+    echo "Build log capture after inject_testing/local_conf..."
+    sed -n '/^#jhu2 append as below:/,$p' conf/local.conf >> ../build.cmd
+}
+
 build_next()
 {
     . ./environment-setup-x86_64-wrlinuxsdk-linux
     . ./oe-init-build-env build
-    
+
+    emit " "
+    emit "#jhu2 append as below:"
+
     inject_testing
-    echo "BB_NO_NETWORK = '0'" >> conf/local.conf
-    
-    #echo IMAGE_FSTYPES += \"tar.bz2\" >> conf/local.conf
-    echo LINUX_KERNEL_TYPE = \"$kernel_val\" >> conf/local.conf
+    local_conf
+    build_cmd_log_post
+
     echo "bitbake $ROOTFS_TYPE"
+    sleep 10
     bitbake $ROOTFS_TYPE
 
-    if [ -d ./tmp/buildstats ]; then
-        new=`find ./tmp/buildstats/ -name do_image_complete 2>/dev/null`
+    if [ -d ./tmp-glibc/buildstats ]; then
+        new="`find ./tmp-glibc/buildstats/ -name do_image_complete 2>/dev/null`"
     else
         new="FAILED"
     fi
 }
 
-#main
-[ $# -lt 3 ] && { echo "Please input 3 parameters";usage;exit 1; }
-[ $# -gt 4 ] && { echo "Please input 3 parameters";usage;exit 1; }
+find_me_setup()
+{
+    echo "Will do smart find for appending extra templates/layers into setup.sh..."
+    i=0
+    for line in `eval declare |grep "^select_template_" | grep "()"`
+    do
+        echo $line | grep "select_template_" &>/dev/null
+        if [ $? == 0 ];then
+            case_name=`echo $line| awk -F"(" '{print $1}'`
+            case_array[$i]=$case_name
+            i=$(($i +1 ))
+        else
+           :
+        fi
+    done
+    for sub_case in ${case_array[@]};
+    do
+        $sub_case
+        sleep 1
+    done
+}
 
+find_me_in_local()
+{
+    echo "Will do specified image append into conf/local.conf"
+    i=0
+    for line in `eval declare |grep "^image_install_append_" | grep "()"`
+    do
+        echo $line | grep "image_install_append_" &>/dev/null
+        if [ $? == 0 ];then
+            case_name=`echo $line| awk -F"(" '{print $1}'`
+            case_array[$i]=$case_name
+            i=$(($i +1 ))
+        else
+           :
+        fi
+    done
+    for sub_case in ${case_array[@]};
+    do
+        $sub_case
+        sleep 1
+    done
+}
+
+
+verify_templates_layers()
+{
+    echo "Verifying appended templates and layers..."
+    num_tem=`echo "$EXTRA_templates" |awk -F "" '{print NF}'`
+    num_ly=`echo "$EXTRA_layers" |awk -F "" '{print NF}'`
+    echo num_templates: $num_tem,$EXTRA_templates
+    echo num_layers: $num_ly,$EXTRA_layers
+    #echo "Formating the output..."
+    #EXTRA_templates_new=`echo $EXTRA_templates |tr -s ' '`
+    #EXTRA_layers_new=`echo $EXTRA_layers |tr -s ' '`
+    #EXTRA_templates=$EXTRA_templates_new
+    #EXTRA_layers=$EXTRA_layers_new
+    [ $num_tem -eq 12 ] && EXTRA_templates=""
+    [ $num_ly -eq 9 ] && EXTRA_layers=""
+    if [ X"$nodistro_f" = X"yes" ];then
+        EXTRA_templates=""
+        EXTRA_layers=""
+    fi
+    num_tem=`echo "$EXTRA_templates" |awk -F "" '{print NF}'`
+    num_ly=`echo "$EXTRA_layers" |awk -F "" '{print NF}'`
+    echo "After formatting EXTRA_templates/EXTRA_layers..."
+    echo num_templates: $num_tem,$EXTRA_templates
+    echo num_layers: $num_ly,$EXTRA_layers
+}
 
 for opt1 in $@
 do
     case $opt1 in
+        hist)           
+                      cat /folk/`whoami`/.myhist
+                      exit 0
+                      ;;
+        dry)
+                      dry_y="yes"
+                      ;;
+        lin9|lts17|lts18)
+                      product=$opt1
+                      ;;
         git|dvd)
                       wherego=$opt1
                       ;;
-        bts|kts|ltp|us)
+        bsp|bench|bts|kts|ltp|us|none)
                       testing_type=$opt1
                       ;;
-        rt|std|cgl|multilib)
+        rt|std)
                       kernel_val=$opt1
-                      [ X"$kernel_val" == X"cgl" ] && Zeus="cgp"
-                      [ X"$kernel_val" == X"multilib" ] && Zeus="multilib"
+                      ;;
+        cgl)
+                      cgl_f="yes"
+                      kernel_val="std"
+                      ;;
+        multilib)
+                      multilib_f="yes"
+                      ;;
+        tpm)
+                      tpm_f="yes"
+                      ;;
+        sato)
+                      sato_f="yes"
                       ;;
         kdump)
-                      kdump="open_k"
+                      kdump_f="open_k"
+                      ;;
+        dpdk)
+                      dpdk_f="yes"
+                      ;;
+        small)
+                      small_f="yes"
+                      ;;
+        nodistro)
+                      nodistro_f="yes"
                       ;;
         ultimate|*)
                       bsp_val=$opt1
@@ -173,97 +542,27 @@ do
     esac
 done
 
-wherego=${wherego:-"git"}
-dvd_path="/folk/lpg-build/cdc/fast_prod/wrlinux90RCPL/"
-
-if [ X"$wherego" == X"dvd" ];then
-    echo "By using DVD source..."
-    DVD_1=`ls -lrt /folk/lpg-build/cdc/fast_prod/wrlinux90RCPL/| tail -1|awk -F" " '{print $NF}'`
-    DVD="$DVD_1/wrlinux-9"
-    read -n1 -t 10 -p "$DVD ???[y]";echo ""
-    if [ X"$REPLY" = X"n" ];then
-        read -t 300 -p "Please input your DVD path:" DVD_2
-        [ -z "$DVD_2" ] && exit 1
-        DVD="$DVD_2/wrlinux-9"
-        echo "Your DVD is: $DVD" 
-    else
-        echo "Selected DVD: $DVD"
-    fi
-else
-    echo "By using GIT source..."
-    if [ X"$kernel_val" == X"cgl" ];then
-        #DVD="/net/pek-lpgtest15/buildarea1/jhu2/WRLINUX_9_LTS/wrlinux-x/"
-        DVD="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
-    else
-        DVD="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
-    fi
-fi
-
-if [ "$Zeus" = "base" ];then
-    echo "For base wrlinux..."
-    #DVD="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
-    #DVD_1="/folk/lpg-build/cdc/fast_prod/wrlinux90RCPL/RCPL0003_LX01"
-    #DVD="$DVD_1/wrlinux-9"
-    ROOTFS_TYPE="wrlinux-image-glibc-std"
-    EXTRA_CMD="--accept-eula=yes"
-    #distros_val="wrlinux-std-sato"
-    distros_val="wrlinux"
-    other_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
-elif [ "$Zeus" = "multilib" ];then
-    echo "For 32bit multilib wrlinux..."
-    sleep 5
-    ROOTFS_TYPE="lib32-wrlinux-image-glibc-std"
-    EXTRA_CMD="--accept-eula=yes"
-    distros_val="wrlinux"
-    other_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
-elif [ "$Zeus" = "cgp" ];then
-    echo "For cgp..." 
-    #DVD="/net/pek-lpgtest15/buildarea1/jhu2/WRLINUX_9_LTS/wrlinux-x/"
-    ROOTFS_TYPE="wrlinux-image-glibc-cgl"
-    EXTRA_CMD="--layers wr-cgl --accept-eula=yes"
-    distros_val="wrlinux-cgl"
-    other_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
-    echo "Kernel type is only supported cgl."
-    kernel_val=cgl
-fi
-
-if [ X"$kdump" == X"open_k" ];then
-    EXTRA_CMD=$EXTRA_CMD" --template=feature/kexec,feature/kdump "
-fi
-if [ X"$testing_type" == X"us" ];then
-    EXTRA_CMD=$EXTRA_CMD" --templates feature/test,feature/gdbserver,feature/gdb,feature/debug,feature/kernel-debug,feature/acl,feature/LAMP,feature/test --layer meta-filesystems,meta-xfce "
-fi
-
 remember_his
+product_select
+real_kernel
+git_dvd
+find_me_setup
 
-if [ -z "$kernel_val" ];then
-    kernel_val="standard"
-elif [ "$kernel_val" = "std" ];then
-    kernel_val="standard"
-elif [ "$kernel_val" = "multilib" ];then
-    kernel_val="preempt-rt"
-elif [ "$kernel_val" = "rt" ];then
-    kernel_val="preempt-rt"
-elif [ "$kernel_val" = "cgl" ];then
-    kernel_val="cgl"
+select_dist_rootfs
+
+verify_templates_layers
+
+EXTRA_full=`echo $EXTRA_templates $EXTRA_layers $EXTRA_CMD|tr -s ' '`
+build_cmd_log
+
+echo "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full"
+if [ X"$dry_y" = X"yes" ]; then
+    cat build.cmd
 else
-    echo "$kernel_val is wrong krenel type!!!"
-    exit 1
+    eval "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full"
+    [ $? -eq 0 ] && build_next
+    [ -z "$testing_type" ] && testing_type="No_Testing_Suites"
+    python ~/scripts/sendmail_new.py "$new" "$testing_type"
 fi
 
-#record command line into $home/.myhist
-
-if [ "$bsp_val" = "intel-skylake-avx512-64" ];then
-    echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
-    eval "echo yes | $DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
-else
-    echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
-    echo "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD" > build.cmd
-    eval "$DVD/setup.sh --machines=$bsp_val --kernel=$kernel_val --distros=$distros_val --base-url git://pek-git.wrs.com --dl-layers $EXTRA_CMD"
-fi
-
-
-build_next
-
-[ -z "$testing_type" ] && testing_type="No_Testing_Suites"
-python ~/scripts/sendmail_new.py $new $testing_type
+echo "Done"
