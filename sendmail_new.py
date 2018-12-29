@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-#Author: jianwei.hu@windriver.com
-#Date: 2017/12/6
+# jianwei.hu@windriver.com
 
 import sys
 import commands
@@ -28,7 +27,10 @@ more_file3 = 'cat ../build.cmd'
 more_file2 = 'git log'
 (status1, output2) = commands.getstatusoutput(more_file2)
 
-content='['+build_time+']'+"Build server and path:   \n"+hostname+":"+path+" \n"+"Logs:--->\n"+ output3 +"\n"+output2 +"\n" + output1
+content='['+build_time+']'+ "\n"+"Build server and path:   \n"+hostname+":"+path+" \n"+"\n"+\
+         "Logs:--->(cat build.cmd)\n" + output3 +"\n\n" + \
+         "git log \n" + output2 + "\n\n" + \
+         more_file + "\n" + output1
 message = MIMEText(content, 'plain', 'utf-8')
 message['From'] = Header("Hu Jianwei", 'utf-8')
 message['To'] =  Header("Hu Jianwei", 'utf-8')

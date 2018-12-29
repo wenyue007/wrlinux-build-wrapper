@@ -2,6 +2,8 @@
 #Owner: Jianwei.Hu@windriver.com
 
 full_args=$@
+debug_y="no"
+ovp_f="no"
 cgl_f="no"
 small_f="no"
 multilib_f="no"
@@ -19,7 +21,7 @@ usage()
 cat <<EOF
 
 Usage:
-$0 [lin9|lts17|lts18] bsp_machine [rt|std] cgl|sato multilib|tpm|kdump|dpdk [none|bts|kts|ltp|us] [git|dvd] dry
+$0 [lin9|lts17|lts18] bsp_machine [rt|std] cgl|ovp|nodistro|small|sato|multilib tpm|kdump|dpdk [none|bts|kts|ltp|us] [git|dvd] dry
 $0 hist
 E.g.
 
@@ -100,6 +102,14 @@ select_template_kdump()
     fi
 }
 
+select_template_intel-persistent-memory()
+{
+    if [ X"$bsp_val" == X"intel-skylake-avx512-64" ];then
+        echo "Setting intel-persistent-memory template..."
+        EXTRA_templates=$EXTRA_templates" feature/intel-persistent-memory "
+    fi
+}
+
 select_template_tpm()
 {
     if [ X"$tpm_f" == X"yes" ];then
@@ -152,13 +162,15 @@ remember_his()
 
 real_kernel()
 {
-    if [ -z "$kernel_val" ];then
-        kernel_val="linux-yocto"
+    if [ "$ovp_f" = "yes" ];then
+        kernel_val=""
     elif [ "$kernel_val" = "std" ];then
-    #    kernel_val="linux-yocto-dev"
+    #   kernel_val="linux-yocto-dev"
         kernel_val="linux-yocto"
     elif [ "$kernel_val" = "rt" ];then
         kernel_val="linux-yocto-rt"
+    elif [ -z "$kernel_val" ];then
+        kernel_val="linux-yocto"
     else
         echo "$kernel_val is wrong krenel type!!!MUST have [std|rt]"
         exit 1
@@ -279,7 +291,7 @@ product_select()
                DVD_rcpl="/folk/lpg-build/cdc/fast_prod/WRL10_17/"
                ;;
         lts18)
-               testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrlinux/wr-testing"
+               testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl18-testing/wrlinux/wr-testing"
                #DVD_base="/lpg-build/cdc/fast_prod/WRL10_18/"
                DVD_path="/lpg-build/cdc/fast_prod/WRL10_18/WRL10_18_GIT/wrlinux-10"
                DVD_rcpl="/folk/lpg-build/cdc/fast_prod/WRL10_18/"
@@ -320,6 +332,10 @@ select_dist_rootfs()
         echo "Setting cgl distro..."
         distros_val="wrlinux-cgl"
         ROOTFS_TYPE="wrlinux-image-glibc-cgl"
+    elif [ X"$ovp_f" = X"yes" ];then
+        echo "setting ovp distro..."
+        distros_val="wrlinux-ovp"
+        ROOTFS_TYPE="wrlinux-image-ovp-kvm"
     elif [ X"$nodistro_f" = X"yes" ];then
         echo "setting nodistro..."
         distros_val="nodistro"
@@ -351,8 +367,10 @@ local_conf()
     if [ "$kernel_val" == "linux-yocto-rt-workaround" ];then
         emit 'PREFERRED_PROVIDER_virtual/kernel = "linux-yocto-rt"'
         emit 'PREFERRED_VERSION_linux-yocto-rt = "4.14%"'
-    else
+    elif [ -n "$kernel_val" ];then
         emit "PREFERRED_PROVIDER_virtual/kernel = \"$kernel_val\""
+    else
+        echo "Will use default kernel value from conf/local.conf ..."
     fi
    #see select_template_tpm()
    # if [ X"$tpm_f" = X"yes" ];then
@@ -368,32 +386,45 @@ local_conf()
 build_cmd_log()
 {
     echo "Build log capture starting..."
-    echo " " > build.cmd
-    echo "$0 $full_args" >> build.cmd
-    echo " " >> build.cmd
-    echo "TEST_STEP" >> build.cmd
-    echo "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full" >> build.cmd
-    echo ". ./environment-setup-x86_64-wrlinuxsdk-linux" >> build.cmd
-    echo ". ./oe-init-build-env build" >> build.cmd
+    exec 6<&1 > build.cmd
+    echo " "
+    echo "$0 $full_args"
+    echo " "
+    echo "TEST_STEP"
+    echo "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full"
+    echo ". ./environment-setup-x86_64-wrlinuxsdk-linux"
+    echo ". ./oe-init-build-env build"
     if [ X"$testing_type" = X"bts" ];then
-        echo "bitbake-layers add-layer ${testing_layer}/bts-dev"  >> build.cmd
-        echo "echo require templates/feature/bts/template.conf >> conf/local.conf" >> build.cmd
+        echo "bitbake-layers add-layer ${testing_layer}/bts-dev"
+        echo "echo require templates/feature/bts/template.conf >> conf/local.conf"
     elif [ X"$testing_type" = X"ltp" ];then
-        echo "bitbake-layers add-layer ${testing_layer}/kts-dev"  >> build.cmd
-        echo "echo require templates/feature/ltp/template.conf >> conf/local.conf" >> build.cmd
+        echo "bitbake-layers add-layer ${testing_layer}/kts-dev"
+        echo "echo require templates/feature/ltp/template.conf >> conf/local.conf"
     elif [ X"$testing_type" = X"kts" ];then
-        echo "bitbake-layers add-layer ${testing_layer}/kts-dev"  >> build.cmd
-        echo "echo require templates/feature/wr-kts/template.conf >> conf/local.conf" >> build.cmd
+        echo "bitbake-layers add-layer ${testing_layer}/kts-dev"
+        echo "echo require templates/feature/wr-kts/template.conf >> conf/local.conf"
     fi
-    echo "echo PREFERRED_PROVIDER_virtual/kernel = \"$kernel_val\" >> conf/local.conf" >> build.cmd
-    echo "bitbake $ROOTFS_TYPE" >> build.cmd
-    echo " " >> build.cmd
+    [ -n "$kernel_val" ] && echo "echo PREFERRED_PROVIDER_virtual/kernel = \"$kernel_val\" >> conf/local.conf"
+    echo "bitbake $ROOTFS_TYPE"
+    echo " "
+    exec 1<&6 6<&-
 }
 
 build_cmd_log_post()
 {
     echo "Build log capture after inject_testing/local_conf..."
+    echo "In conf/local.conf :" >> ../build.cmd
     sed -n '/^#jhu2 append as below:/,$p' conf/local.conf >> ../build.cmd
+}
+
+check_after_build()
+{
+    exec 6<&1 >> ../build.cmd
+    echo " "
+    echo "Filter error/warning from bitbake_build.log:"
+    cat bitbake_build.log| grep -iE "^warning|^error"
+    echo " "
+    exec 1<&6 6<&-
 }
 
 build_next()
@@ -407,13 +438,15 @@ build_next()
     inject_testing
     local_conf
     build_cmd_log_post
-
+    
+    [ X"$deepdry_y" == X"yes" ] && exit 0
     echo "bitbake $ROOTFS_TYPE"
     sleep 10
-    bitbake $ROOTFS_TYPE
+    bitbake $ROOTFS_TYPE | tee bitbake_build.log
 
+    check_after_build
     if [ -d ./tmp-glibc/buildstats ]; then
-        new="`find ./tmp-glibc/buildstats/ -name do_image_complete 2>/dev/null`"
+        new="`readlink -f $(find ./tmp-glibc/buildstats/ -name do_image_complete |grep -v initramfs 2>/dev/null)`"
     else
         new="FAILED"
     fi
@@ -492,12 +525,25 @@ verify_templates_layers()
 for opt1 in $@
 do
     case $opt1 in
+        help)           
+                      usage
+                      exit 0
+                      ;;
         hist)           
                       cat /folk/`whoami`/.myhist
                       exit 0
                       ;;
+        last)           
+                      run_last=$(cat /folk/`whoami`/.myhist|tail -1)
+                      echo $run_last
+                      eval $run_last
+                      exit 0
+                      ;;
         dry)
                       dry_y="yes"
+                      ;;
+        deep)
+                      deepdry_y="yes"
                       ;;
         lin9|lts17|lts18)
                       product=$opt1
@@ -514,6 +560,9 @@ do
         cgl)
                       cgl_f="yes"
                       kernel_val="std"
+                      ;;
+        ovp)
+                      ovp_f="yes"
                       ;;
         multilib)
                       multilib_f="yes"
@@ -542,6 +591,7 @@ do
     esac
 done
 
+#start from here
 remember_his
 product_select
 real_kernel
