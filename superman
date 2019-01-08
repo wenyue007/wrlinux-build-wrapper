@@ -1,6 +1,7 @@
 #! /bin/bash -
 #Owner: Jianwei.Hu@windriver.com
 
+bb_f="no"
 full_args=$@
 debug_y="no"
 ovp_f="no"
@@ -21,7 +22,7 @@ usage()
 cat <<EOF
 
 Usage:
-$0 [lin9|lts17|lts18] bsp_machine [rt|std] cgl|ovp|nodistro|small|sato|multilib tpm|kdump|dpdk [none|bts|kts|ltp|us] [git|dvd] dry
+$0 [lin9|lts17|lts18] bsp_machine [rt|std] cgl|ovp|nodistro|small|sato|multilib tpm|kdump|dpdk [none|bts|kts|ltp|us] [git|dvd] dry|bb
 $0 hist
 E.g.
 
@@ -66,6 +67,12 @@ image_install_append_dpdk-examples-test()
     fi
 }
 
+bb_network()
+{
+    if [ X"$bb_f" == X"yes" ];then
+        emit 'BB_NO_NETWORK = "0"'
+    fi
+}
 bug_workaround()
 {
     echo "Will do bug workaround into conf/local.conf"
@@ -91,6 +98,9 @@ PNWHITELIST_networking-layer += 'libldb'
 PNWHITELIST_networking-layer += 'libtdb'
         "
     fi
+
+    bb_network
+
 }
 
 #If you want to add some extra options into setup.sh, please add below similar function.
@@ -189,6 +199,8 @@ us()
         emit 'WRTEMPLATE_append = " feature/userspace-test "'
         emit 'IMAGE_ROOTFS_EXTRA_SPACE = "2242880"'
         echo "Appended userspace into conf/local.conf"
+        echo "Will enable network to fetch package from somewhere..."
+        bb_f="yes"
     else
         echo "userspace already existed"
     fi
@@ -422,7 +434,7 @@ check_after_build()
     exec 6<&1 >> ../build.cmd
     echo " "
     echo "Filter error/warning from bitbake_build.log:"
-    cat bitbake_build.log| grep -iE "^warning|^error"
+    cat bitbake_build.log| grep -iE "^warning|^error" -b6
     echo " "
     exec 1<&6 6<&-
 }
@@ -584,6 +596,9 @@ do
                       ;;
         nodistro)
                       nodistro_f="yes"
+                      ;;
+        bb)
+                      bb_f="yes"
                       ;;
         ultimate|*)
                       bsp_val=$opt1
