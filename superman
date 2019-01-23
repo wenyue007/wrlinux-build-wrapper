@@ -1,6 +1,7 @@
 #! /bin/bash -
 #Owner: Jianwei.Hu@windriver.com
 
+sendmail="sendmail_new.py"
 bb_f="no"
 full_args=$@
 debug_y="no"
@@ -30,6 +31,8 @@ $0 intel-x86-64 rt bts dvd
 
 Note: cgl has std kernel by default.
 EOF
+
+exit 1
 }
 
 #This emit() will set your setting into conf/local.conf
@@ -114,7 +117,7 @@ select_template_kdump()
 
 select_template_intel-persistent-memory()
 {
-    if [ X"$bsp_val" == X"intel-skylake-avx512-64" ];then
+    if [ X"$bsp_val" == X"intel-skylake-avx512-64" -a X"$product" == X"lts18" ];then
         echo "Setting intel-persistent-memory template..."
         EXTRA_templates=$EXTRA_templates" feature/intel-persistent-memory "
     fi
@@ -198,6 +201,7 @@ us()
         bitbake-layers add-layer ${testing_layer}/userspace
         emit 'WRTEMPLATE_append = " feature/userspace-test "'
         emit 'IMAGE_ROOTFS_EXTRA_SPACE = "2242880"'
+        emit 'IMAGE_FSTYPES_remove = " live"'
         echo "Appended userspace into conf/local.conf"
         echo "Will enable network to fetch package from somewhere..."
         bb_f="yes"
@@ -431,12 +435,23 @@ build_cmd_log_post()
 
 check_after_build()
 {
+    build_file=$1
     exec 6<&1 >> ../build.cmd
     echo " "
     echo "Filter error/warning from bitbake_build.log:"
-    cat bitbake_build.log| grep -iE "^warning|^error" -b6
+    cat $build_file | grep -iE "^warning|^error" -b6
     echo " "
     exec 1<&6 6<&-
+}
+
+get_build_pass()
+{
+    if [ -d ./tmp-glibc/buildstats ]; then
+        new="`readlink -f $(find ./tmp-glibc/buildstats/ -name do_image_complete |grep -v initramfs |head -1 2>/dev/null) 2>/dev/null`"
+        [ -z "$new" ] && new="FAILED"
+    else
+        new="FAILED"
+    fi
 }
 
 build_next()
@@ -456,12 +471,87 @@ build_next()
     sleep 10
     bitbake $ROOTFS_TYPE | tee bitbake_build.log
 
-    check_after_build
-    if [ -d ./tmp-glibc/buildstats ]; then
-        new="`readlink -f $(find ./tmp-glibc/buildstats/ -name do_image_complete |grep -v initramfs 2>/dev/null)`"
+    check_after_build bitbake_build.log
+    get_build_pass
+}
+
+cont_fast()
+{
+    [ -f build.cmd ] && ROOTFS_TYPE=`cat build.cmd | grep  "^bitbake "|awk -F" " '{print $2}'`
+    ROOTFS_TYPE=${ROOTFS_TYPE:-wrlinux-image-glibc-std}
+    echo "The ROOTFS_TYPE: $ROOTFS_TYPE"
+    if [ ! -d build ]; then
+       echo "Not found build dir, exit..." 
+       exit 1
     else
-        new="FAILED"
-    fi
+        . ./environment-setup-x86_64-wrlinuxsdk-linux
+        . ./oe-init-build-env build
+        echo "bitbake $ROOTFS_TYPE"
+        echo " " >> ../build.cmd
+        echo " " >> ../build.cmd
+        
+        echo "After rebuild..." >> ../build.cmd
+        echo "bitbake $ROOTFS_TYPE" >> ../buil.cmd
+        sleep 10
+        bitbake $ROOTFS_TYPE | tee bitbake_build_rebuild.log
+        if [ ${PIPESTATUS[0]} -eq 0 ];then
+            echo "Build $package ====> PASSED!"
+            new="rebuild"
+        else
+            echo "Build $package ====> FAILED!"
+            new="FAILED"
+        fi
+
+        check_after_build bitbake_build_rebuild.log
+        testing_type="re"
+        python ~/scripts/$sendmail "$new" "$testing_type"
+   fi
+
+}
+
+build_pacakage()
+{
+    results_packages=""
+    top_path=`readlink -f . 2>/dev/null`
+    layers_path=`readlink -f layers 2>/dev/null`
+    [ -z "$layers_path" ] && exit 1
+    [ -f build.cmd ] && pre_lib32=`cat build.cmd |head -2 | grep  " multilib "`
+    for meta in `ls $layers_path`
+    do
+        cd $layers_path/$meta
+        #changed_list=`git log --since=yesterday --pretty=oneline --numstat| grep -E "bb$|bbappend$"|awk -F"/" '{print $NF}'|sort|uniq`
+        changed_list=`git log --since=5.days --pretty=oneline --numstat| grep -E "bb$|bbappend$"|awk -F"/" '{print $NF}'|sort|uniq`
+        if [ -z "$changed_list" ];then
+            :
+            #echo "N/A"
+        else
+            echo "In $layers_path/$meta ===>"
+            results_packages=${results_packages}"\nIn $layers_path/$meta ===>"
+            echo "+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+"
+            echo "$changed_list"
+            cd $top_path
+            . ./environment-setup-x86_64-wrlinuxsdk-linux
+            . ./oe-init-build-env build &> /dev/null
+            for package_ver in $changed_list
+            do
+                package=`echo $package_ver| awk -F"_" '{print $1}'`
+                [  -n "$pre_lib32" ] && package="lib32-"${package}
+                echo "bitbake $package"
+                sleep 3
+                bitbake -q $package | tee -a bitbake_build_packages.log
+                if [ ${PIPESTATUS[0]} -eq 0 ];then
+                    echo "Build $package ====> PASSED!"
+                    results_packages=${results_packages}"\n   Build $package ====> PASSED!"
+                else
+                    echo "Build $package ====> FAILED!"
+                    results_packages=${results_packages}"\n   Build $package ====> FAILED!"
+                fi
+            done
+            echo "+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+"
+        fi
+        cd $layers_path
+    done
+    echo -e "$results_packages"
 }
 
 find_me_setup()
@@ -537,9 +627,16 @@ verify_templates_layers()
 for opt1 in $@
 do
     case $opt1 in
+        cont)           
+                      cont_fast
+                      exit 0
+                      ;;
+        package)           
+                      build_pacakage
+                      exit 0
+                      ;;
         help)           
                       usage
-                      exit 0
                       ;;
         hist)           
                       cat /folk/`whoami`/.myhist
@@ -606,6 +703,7 @@ do
     esac
 done
 
+[ -z "$bsp_val" ] && usage
 #start from here
 remember_his
 product_select
@@ -627,7 +725,7 @@ else
     eval "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full"
     [ $? -eq 0 ] && build_next
     [ -z "$testing_type" ] && testing_type="No_Testing_Suites"
-    python ~/scripts/sendmail_new.py "$new" "$testing_type"
+    python ~/scripts/$sendmail "$new" "$testing_type"
 fi
 
 echo "Done"
