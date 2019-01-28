@@ -2,6 +2,7 @@
 #Owner: Jianwei.Hu@windriver.com
 
 sendmail="sendmail_new.py"
+#sendmail="sendmail_new_updated.py"
 bb_f="no"
 full_args=$@
 debug_y="no"
@@ -155,6 +156,8 @@ invalid_select_template_bug_workaround_append()
     if [ X"$testing_type" == X"bts" ];then
         echo "Will add yaffs2 into bts ..." 
         EXTRA_templates=$EXTRA_templates" feature/yaffs2-utils "
+        echo "Setting intel-persistent-memory template..."
+        EXTRA_templates=$EXTRA_templates" feature/intel-persistent-memory "
     fi
 }
 
@@ -469,7 +472,7 @@ build_next()
     [ X"$deepdry_y" == X"yes" ] && exit 0
     echo "bitbake $ROOTFS_TYPE"
     sleep 10
-    bitbake $ROOTFS_TYPE | tee bitbake_build.log
+    bitbake $ROOTFS_TYPE 2>&1| tee bitbake_build.log
 
     check_after_build bitbake_build.log
     get_build_pass
@@ -493,7 +496,7 @@ cont_fast()
         echo "After rebuild..." >> ../build.cmd
         echo "bitbake $ROOTFS_TYPE" >> ../buil.cmd
         sleep 10
-        bitbake $ROOTFS_TYPE | tee bitbake_build_rebuild.log
+        bitbake $ROOTFS_TYPE 2>&1| tee bitbake_build_rebuild.log
         if [ ${PIPESTATUS[0]} -eq 0 ];then
             echo "Build $package ====> PASSED!"
             new="rebuild"
@@ -538,7 +541,7 @@ build_pacakage()
                 [  -n "$pre_lib32" ] && package="lib32-"${package}
                 echo "bitbake $package"
                 sleep 3
-                bitbake -q $package | tee -a bitbake_build_packages.log
+                bitbake -q $package 2>&1 | tee -a bitbake_build_packages.log
                 if [ ${PIPESTATUS[0]} -eq 0 ];then
                     echo "Build $package ====> PASSED!"
                     results_packages=${results_packages}"\n   Build $package ====> PASSED!"
