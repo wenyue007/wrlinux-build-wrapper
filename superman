@@ -2,7 +2,6 @@
 #Owner: Jianwei.Hu@windriver.com
 
 sendmail="sendmail_new.py"
-#sendmail="sendmail_new_updated.py"
 bb_f="no"
 full_args=$@
 debug_y="no"
@@ -150,12 +149,12 @@ select_template_extra_us()
     fi
 }
 
-invalid_select_template_bug_workaround_append()
+select_template_bug_workaround_append()
 {
     echo "Will do $FUNCNAME ..." 
     if [ X"$testing_type" == X"bts" ];then
-        echo "Will add yaffs2 into bts ..." 
-        EXTRA_templates=$EXTRA_templates" feature/yaffs2-utils "
+        #echo "Will add yaffs2 into bts ..." 
+        #EXTRA_templates=$EXTRA_templates" feature/yaffs2-utils "
         echo "Setting intel-persistent-memory template..."
         EXTRA_templates=$EXTRA_templates" feature/intel-persistent-memory "
     fi
@@ -419,6 +418,8 @@ build_cmd_log()
     elif [ X"$testing_type" = X"ltp" ];then
         echo "bitbake-layers add-layer ${testing_layer}/kts-dev"
         echo "echo require templates/feature/ltp/template.conf >> conf/local.conf"
+    elif [ X"$testing_type" = X"us" ];then
+        echo "bitbake-layers add-layer ${testing_layer}/userspace"
     elif [ X"$testing_type" = X"kts" ];then
         echo "bitbake-layers add-layer ${testing_layer}/kts-dev"
         echo "echo require templates/feature/wr-kts/template.conf >> conf/local.conf"
@@ -728,7 +729,7 @@ else
     eval "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full"
     [ $? -eq 0 ] && build_next
     [ -z "$testing_type" ] && testing_type="No_Testing_Suites"
-    python ~/scripts/$sendmail "$new" "$testing_type"
+    python /folk/jhu2/scripts/$sendmail "$new" "$testing_type"
 fi
 
 echo "Done"
