@@ -181,11 +181,23 @@ real_kernel()
         kernel_val=""
     elif [ "$kernel_val" = "std" ];then
     #   kernel_val="linux-yocto-dev"
-        kernel_val="linux-yocto"
+        if [ "$product" == "lin9" ];then
+            kernel_val="standard"
+        else
+            kernel_val="linux-yocto"
+        fi
     elif [ "$kernel_val" = "rt" ];then
-        kernel_val="linux-yocto-rt"
+        if [ "$product" == "lin9" ];then
+            kernel_val="preempt-rt"
+        else
+            kernel_val="linux-yocto-rt"
+        fi
     elif [ -z "$kernel_val" ];then
-        kernel_val="linux-yocto"
+        if [ "$product" == "lin9" ];then
+            kernel_val="standard"
+        else
+            kernel_val="linux-yocto"
+        fi
     else
         echo "$kernel_val is wrong krenel type!!!MUST have [std|rt]"
         exit 1
@@ -327,16 +339,30 @@ git_dvd()
     
     if [ X"$wherego" == X"dvd" ];then
         echo "Will use DVD source..."
-        DVD_1=`ls -lrt $DVD_rcpl| tail -1|awk -F" " '{print $NF}'`
-        DVD="${DVD_rcpl}${DVD_1}/wrlinux-10"
-        read -n1 -t 10 -p "$DVD ???[y]";echo ""
-        if [ X"$REPLY" = X"n" ];then
-            read -t 300 -p "Please input your DVD path:" DVD_2
-            [ -z "$DVD_2" ] && exit 1
-            DVD="$DVD_2/"
-            echo "Your DVD is: $DVD"
+        if [ "$product" == "lin9" ];then
+            DVD_1=`ls -lrt $DVD_rcpl| tail -1|awk -F" " '{print $NF}'`
+            DVD="${DVD_1}/wrlinux-9"
+            read -n1 -t 10 -p "$DVD ???[y]";echo ""
+            if [ X"$REPLY" = X"n" ];then
+                read -t 300 -p "Please input your DVD path:" DVD_2
+                [ -z "$DVD_2" ] && exit 1
+                DVD="$DVD_2/"
+                echo "Your DVD is: $DVD"
+            else
+                echo "Selected DVD: $DVD"
+            fi
         else
-            echo "Selected DVD: $DVD"
+            DVD_1=`ls -lrt $DVD_rcpl| tail -1|awk -F" " '{print $NF}'`
+            DVD="${DVD_rcpl}${DVD_1}/wrlinux-10"
+            read -n1 -t 10 -p "$DVD ???[y]";echo ""
+            if [ X"$REPLY" = X"n" ];then
+                read -t 300 -p "Please input your DVD path:" DVD_2
+                [ -z "$DVD_2" ] && exit 1
+                DVD="$DVD_2/"
+                echo "Your DVD is: $DVD"
+            else
+                echo "Selected DVD: $DVD"
+            fi
         fi
     else
         echo "Will use GIT source..."
@@ -386,7 +412,11 @@ local_conf()
         emit 'PREFERRED_PROVIDER_virtual/kernel = "linux-yocto-rt"'
         emit 'PREFERRED_VERSION_linux-yocto-rt = "4.14%"'
     elif [ -n "$kernel_val" ];then
-        emit "PREFERRED_PROVIDER_virtual/kernel = \"$kernel_val\""
+        if [ "$product" == "lin9" ];then
+            emit "LINUX_KERNEL_TYPE = \"$kernel_val\""
+        else
+            emit "PREFERRED_PROVIDER_virtual/kernel = \"$kernel_val\""
+        fi
     else
         echo "Will use default kernel value from conf/local.conf ..."
     fi
