@@ -2,6 +2,7 @@
 #Owner: Jianwei.Hu@windriver.com
 
 sendmail="sendmail_new.py"
+barcode=""
 bb_f="no"
 full_args=$@
 debug_y="no"
@@ -18,18 +19,88 @@ EXTRA_CMD="--accept-eula=yes"
 EXTRA_templates="--templates "
 EXTRA_layers="--layers "
 
+pre_config()
+{
+    #empty BBPATH in this sub-shell
+    export BBPATH=""
+}
+
+barcode_check()
+{
+    for opt1 in $@
+    do
+        if grep '^[[:digit:]]*$' <<< "$opt1";then 
+            num_5=`echo "$opt1" |awk -F "" '{print NF}'`
+            if [ $num_5 -eq 5 ];then 
+                barcode=$opt1
+                shift +1
+                break
+            fi
+        fi
+    done
+}
+
+deploy_board()
+{
+    if [ -n "$barcode" ];then 
+        echo "The barcode: $barcode,will deploy image on it..." 
+        /folk/jhu2/scripts/vlm autocp $barcode |tee -a ../build.cmd
+    else 
+        echo 'No avaliable barcode, do nothing' | tee -a ../build.cmd
+    fi
+}
+
 usage()
 {
 cat <<EOF
 
 Usage:
-$0 [lin9|lts17|lts18] bsp_machine [rt|std] cgl|ovp|nodistro|small|sato|multilib tpm|kdump|dpdk [none|bts|kts|ltp|us] [git|dvd] dry|bb
+$0 [lin9|lts17|lts18] bsp_machine [rt|std] cgl|ovp|nodistro|small|sato|multilib tpm|kdump|dpdk [none|bts|kts|ltp|us] [git|dvd] dry|deep|bb|cont|package
 $0 hist
 E.g.
 
 $0 intel-x86-64 rt bts dvd
 
 Note: cgl has std kernel by default.
+
+lin9|lts17|lts18   product lines.
+
+bsp_machine        supported bsp name, such as: qemux86-64 intel-x86-64 intel-skylake-avx512-64 nxp-ls1046.
+
+rt|std             supported kernel types, rt:preempt-rt, std:standard.
+
+cgl|ovp|sato|small distros:
+                   wrlinux(wrlinux-image-glibc-std, default),
+                   wrlinux-cgl(wrlinux-image-glibc-cgl, std kernel default),
+                   wrlinux-ovp(wrlinux-image-ovp-kvm),
+                   wrlinux-std-sato(wrlinux-image-glibc-std-sato),
+                   wrlinux-small(wrlinux-image-glibc-small).
+
+nodistro           distros:nodistro(core-image-base).
+
+multilib           distros:wrlinux(lib32-wrlinux-image-glibc-std).
+
+tpm|kdump|dpdk     add tpm/kdump/dpdk templates into setup.sh.
+
+bts|kts|ltp|us     add testing layer into project, none is without such testing layer.
+
+git|dvd            git uses git repo to setup project, dvd will use rcplXXXX to setup project.
+
+dry|deep           debug mode, dry stop before setup.sh; deep stop before bitbake rootfs.
+
+bb                 set BB_NO_NETWORK=0 in local.conf.
+
+cont|package       when build fail first time, use cont to continue build after fixing issue manually;
+                   use package to build packages which was changed in 5 days.
+
+hist               show history commands.
+
+last               execute last command.
+
+help               show this usage.
+
+
+bye
 EOF
 
 exit 1
@@ -490,6 +561,7 @@ get_build_pass()
 
 build_next()
 {
+    pre_config
     . ./environment-setup-x86_64-wrlinuxsdk-linux
     . ./oe-init-build-env build
 
@@ -518,6 +590,7 @@ cont_fast()
        echo "Not found build dir, exit..." 
        exit 1
     else
+        pre_config
         . ./environment-setup-x86_64-wrlinuxsdk-linux
         . ./oe-init-build-env build
         echo "bitbake $ROOTFS_TYPE"
@@ -525,7 +598,7 @@ cont_fast()
         echo " " >> ../build.cmd
         
         echo "After rebuild..." >> ../build.cmd
-        echo "bitbake $ROOTFS_TYPE" >> ../buil.cmd
+        echo "bitbake $ROOTFS_TYPE" >> ../build.cmd
         sleep 10
         bitbake $ROOTFS_TYPE 2>&1| tee bitbake_build_rebuild.log
         if [ ${PIPESTATUS[0]} -eq 0 ];then
@@ -538,6 +611,7 @@ cont_fast()
 
         check_after_build bitbake_build_rebuild.log
         testing_type="re"
+        [ X"$new" != X"FAILED" ] && deploy_board 
         python ~/scripts/$sendmail "$new" "$testing_type"
    fi
 
@@ -552,18 +626,20 @@ build_pacakage()
     [ -f build.cmd ] && pre_lib32=`cat build.cmd |head -2 | grep  " multilib "`
     for meta in `ls $layers_path`
     do
+        echo -n "In $layers_path/$meta ===>"
         cd $layers_path/$meta
         #changed_list=`git log --since=yesterday --pretty=oneline --numstat| grep -E "bb$|bbappend$"|awk -F"/" '{print $NF}'|sort|uniq`
         changed_list=`git log --since=5.days --pretty=oneline --numstat| grep -E "bb$|bbappend$"|awk -F"/" '{print $NF}'|sort|uniq`
         if [ -z "$changed_list" ];then
             :
-            #echo "N/A"
+            echo " N/A"
         else
-            echo "In $layers_path/$meta ===>"
             results_packages=${results_packages}"\nIn $layers_path/$meta ===>"
+            echo " "
             echo "+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+_+"
             echo "$changed_list"
             cd $top_path
+            pre_config
             . ./environment-setup-x86_64-wrlinuxsdk-linux
             . ./oe-init-build-env build &> /dev/null
             for package_ver in $changed_list
@@ -658,6 +734,11 @@ verify_templates_layers()
     echo num_layers: $num_ly,$EXTRA_layers
 }
 
+if [[ -z "$@" ]];then
+    usage    
+fi
+
+barcode_check $@
 for opt1 in $@
 do
     case $opt1 in
@@ -731,6 +812,9 @@ do
         bb)
                       bb_f="yes"
                       ;;
+        [0-9]*[0-9])
+                      barcode="$opt1"
+                      ;;
         ultimate|*)
                       bsp_val=$opt1
                       ;;
@@ -759,6 +843,7 @@ else
     eval "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full"
     [ $? -eq 0 ] && build_next
     [ -z "$testing_type" ] && testing_type="No_Testing_Suites"
+    [ X"$new" != X"FAILED" ] && deploy_board 
     python /folk/jhu2/scripts/$sendmail "$new" "$testing_type"
 fi
 
