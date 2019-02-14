@@ -2,6 +2,7 @@
 #Owner: Jianwei.Hu@windriver.com
 
 sendmail="sendmail_new.py"
+bsp_val=""
 barcode=""
 bb_f="no"
 full_args=$@
@@ -15,9 +16,67 @@ sato_f="no"
 dpdk_f="no"
 kdump_f="no"
 nodistro_f="no"
+force_f="no"
 EXTRA_CMD="--accept-eula=yes"
 EXTRA_templates="--templates "
 EXTRA_layers="--layers "
+
+#All supported bsp array
+valid_bsp=(
+amd-snowyowl
+axxiaarm
+axxiaarm64
+bcm-2xxx-rpi
+bcm-587xx
+beaglebone
+beaglebone-yocto
+cav-octeontx
+edgerouter
+genericx86
+genericx86-64
+intel-broadwell-32
+intel-broadwell-64
+intel-haswell-32
+intel-haswell-64
+intel-kabylake-32
+intel-kabylake-64
+intel-skylake-32
+intel-skylake-64
+intel-skylake-avx512-32
+intel-skylake-avx512-64
+intel-socfpga
+intel-socfpga-64
+intel-socfpga-64b
+intel-vmware-guest-32
+intel-vmware-guest-64
+intel-x86-32
+intel-x86-64
+marvell-armada-64
+mpc8315e-rdb
+nxp-imx6
+nxp-imx7
+nxp-imx8
+nxp-ls1012
+nxp-ls1046
+nxp-ls10xx
+nxp-ls20xx
+nxp-lx2xxx
+nxp-t4xxx
+qemuarm
+qemuarm64
+qemuarma9
+qemumips
+qemumips64
+qemuppc
+qemux86
+qemux86-64
+qemux86copy
+ti-66ak2xxx
+ti-66ak2xxx-hf
+ti-am335x
+xilinx-zynq
+xilinx-zynqmp
+)
 
 pre_config()
 {
@@ -47,6 +106,47 @@ deploy_board()
         /folk/jhu2/scripts/vlm autocp $barcode |tee -a ../build.cmd
     else 
         echo 'No avaliable barcode, do nothing' | tee -a ../build.cmd
+    fi
+}
+
+bsp_harvest()
+{
+    bsp_found=0
+    num_bsp=`echo $bsp_val_org |awk -F" " '{print NF}'`
+    for can_bsp in $bsp_val_org; do
+        echo "Will validate $can_bsp ..."
+        for bsp in ${valid_bsp[@]}; do
+            if [ "$can_bsp" == "$bsp" ];then
+                echo "<<< $can_bsp >>> is valid!!!"
+                bsp_val=$can_bsp
+                bsp_found=1
+                break 2
+            fi
+        done    
+    done
+    if [[ $bsp_found -eq 0 && $num_bsp -eq 1 ]];then
+         echo "<<<${bsp_val_org}>>> This is new machine name???"
+         bsp_val=$bsp_val_org
+    fi
+    [ -z "$bsp_val" ] && echo "Please give one valid machine(bsp)!!!"
+}
+
+force_bsp_harvest()
+{
+    bsp_found=0
+    active_bsp=`$DVD/setup.sh --list-machines --accept-eula yes|sed -n '/^--------------------/,$p'|sed 1d|awk -F" " '{print $1}'`
+    for bsp in $active_bsp; do
+        if [ "$bsp_val" == "$bsp" ];then
+            echo "<<< $bsp_val >>> is valid online!!!"
+            bsp_found=1
+            break
+        fi
+    done    
+    [ $bsp_found -eq 0 ] && bsp_val=""
+    if [ -z "$bsp_val" ];then
+        echo "Please give one valid online machine(bsp)!!!"
+        echo "$active_bsp"
+        usage
     fi
 }
 
@@ -99,6 +199,7 @@ last               execute last command.
 
 help               show this usage.
 
+force              online check machine(bsp) name 
 
 bye
 EOF
@@ -397,8 +498,13 @@ product_select()
                DVD_path="/lpg-build/cdc/fast_prod/WRL10_18/WRL10_18_GIT/wrlinux-10"
                DVD_rcpl="/folk/lpg-build/cdc/fast_prod/WRL10_18/"
                ;;
+        lts19)
+               testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrlinux/wr-testing"
+               DVD_path="/lpg-build/cdc/fast_prod/WRL10_19/WRL10_19_GIT/wrlinux-10/"
+               DVD_rcpl="/folk/lpg-build/cdc/fast_prod/WRL10_19/"
+               ;;
         *)
-               echo "please input correct product...[lin9|lts17|lts18]"
+               echo "please input correct product...[lin9|lts17|lts18|lts19]"
                exit 1
                ;;
      esac
@@ -424,6 +530,7 @@ git_dvd()
             fi
         else
             DVD_1=`ls -lrt $DVD_rcpl| tail -1|awk -F" " '{print $NF}'`
+            [ -z "$DVD_1" ] && echo "No any RCPL found!!!" && exit 1
             DVD="${DVD_rcpl}${DVD_1}/wrlinux-10"
             read -n1 -t 10 -p "$DVD ???[y]";echo ""
             if [ X"$REPLY" = X"n" ];then
@@ -769,7 +876,7 @@ do
         deep)
                       deepdry_y="yes"
                       ;;
-        lin9|lts17|lts18)
+        lin9|lts17|lts18|lts19)
                       product=$opt1
                       ;;
         git|dvd)
@@ -815,18 +922,25 @@ do
         [0-9]*[0-9])
                       barcode="$opt1"
                       ;;
+        force)
+                      force_f="yes"
+                      ;;
         ultimate|*)
-                      bsp_val=$opt1
+                      bsp_val_org+="$opt1 "
                       ;;
     esac
 done
 
+bsp_harvest
 [ -z "$bsp_val" ] && usage
 #start from here
 remember_his
 product_select
 real_kernel
 git_dvd
+
+[ "$force_f" == "yes" ] && force_bsp_harvest
+
 find_me_setup
 
 select_dist_rootfs
