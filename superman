@@ -15,8 +15,10 @@ tpm_f="no"
 sato_f="no"
 dpdk_f="no"
 kdump_f="no"
+docker_f="no"
 nodistro_f="no"
 force_f="no"
+next_f="no"
 EXTRA_CMD="--accept-eula=yes"
 EXTRA_templates="--templates "
 EXTRA_layers="--layers "
@@ -92,7 +94,6 @@ barcode_check()
             num_5=`echo "$opt1" |awk -F "" '{print NF}'`
             if [ $num_5 -eq 5 ];then 
                 barcode=$opt1
-                shift +1
                 break
             fi
         fi
@@ -172,7 +173,7 @@ rt|std             supported kernel types, rt:preempt-rt, std:standard.
 cgl|ovp|sato|small distros:
                    wrlinux(wrlinux-image-glibc-std, default),
                    wrlinux-cgl(wrlinux-image-glibc-cgl, std kernel default),
-                   wrlinux-ovp(wrlinux-image-ovp-kvm),
+                   wrlinux-ovp(wrlinux-image-ovp-kvm, no specified kernel, use default),
                    wrlinux-std-sato(wrlinux-image-glibc-std-sato),
                    wrlinux-small(wrlinux-image-glibc-small).
 
@@ -201,6 +202,8 @@ help               show this usage.
 
 force              online check machine(bsp) name 
 
+scp|ostree         add ostree or scp related features
+
 bye
 EOF
 
@@ -225,11 +228,13 @@ EOF
 #    echo "Added $FUNCNAME into conf/local.conf"
 
 
-invalid_image_install_append_iperf3()
+image_install_append_iperf3()
 {
-    echo "Will add $FUNCNAME into conf/local.conf"
-    emit 'IMAGE_INSTALL_append = " iperf3"'
-    echo "Added $FUNCNAME into conf/local.conf"
+    if [ X"$iperf_f" == X"yes" ];then
+        echo "Will add $FUNCNAME into conf/local.conf"
+        emit 'IMAGE_INSTALL_append = " iperf3"'
+        echo "Added $FUNCNAME into conf/local.conf"
+    fi
 }
 
 image_install_append_dpdk-examples-test()
@@ -279,6 +284,14 @@ PNWHITELIST_networking-layer += 'libtdb'
 }
 
 #If you want to add some extra options into setup.sh, please add below similar function.
+select_template_docker()
+{
+    if [ X"$docker_f" == X"yes" ];then
+        echo "Setting docker template..."
+        EXTRA_templates=$EXTRA_templates" feature/docker "
+    fi
+}
+
 select_template_kdump()
 {
     if [ X"$kdump_f" == X"open_k" ];then
@@ -295,6 +308,39 @@ select_template_intel-persistent-memory()
     fi
 }
 
+select_template_ostree()
+{
+    if [ X"$ostree_f" == X"yes" ];then
+        echo "Setting ostree template..."
+        EXTRA_templates=$EXTRA_templates" feature/ostree "
+        EXTRA_layers=$EXTRA_layers" wr-ostree "
+    fi
+}
+
+select_template_sb()
+{
+    if [ X"$sb_f" == X"yes" ];then
+        echo "Setting efi-secure-boot template..."
+        EXTRA_templates=$EXTRA_templates" feature/efi-secure-boot "
+    fi
+}
+
+select_template_scp()
+{
+    if [ X"$scp_f" == X"yes" ];then
+        echo "Setting scp template..."
+        EXTRA_templates=$EXTRA_templates" feature/efi-secure-boot feature/encrypted-storage "
+    fi
+}
+
+select_template_next()
+{
+    if [ X"$next_f" == X"yes" ];then
+        echo "Setting linux-yocto-dev(next) template..."
+        EXTRA_templates=$EXTRA_templates" feature/linux-yocto-dev "
+    fi
+}
+
 select_template_tpm()
 {
     if [ X"$tpm_f" == X"yes" ];then
@@ -303,12 +349,20 @@ select_template_tpm()
     fi
 }
 
+select_template_zynqmp-secure-boot()
+{
+    if [ X"$zynqmp_f" == X"yes" ];then
+        echo "Setting zynqmp-secure-boot layer..."
+        EXTRA_layers=$EXTRA_layers" zynqmp-secure-boot "
+    fi
+}
+
 select_template_dpdk()
 {
     if [ X"$dpdk_f" == X"yes" ];then
         echo "Setting dpdk template and layer..."
         EXTRA_templates=$EXTRA_templates" feature/dpdk feature/bsp-extras "
-        EXTRA_layers=$EXTRA_layers" meta-dpdk"
+        EXTRA_layers=$EXTRA_layers" meta-dpdk "
     fi
 }
 
@@ -325,10 +379,11 @@ select_template_bug_workaround_append()
 {
     echo "Will do $FUNCNAME ..." 
     if [ X"$testing_type" == X"bts" ];then
+        :
         #echo "Will add yaffs2 into bts ..." 
         #EXTRA_templates=$EXTRA_templates" feature/yaffs2-utils "
-        echo "Setting intel-persistent-memory template..."
-        EXTRA_templates=$EXTRA_templates" feature/intel-persistent-memory "
+        #echo "Setting intel-persistent-memory template..."
+        #EXTRA_templates=$EXTRA_templates" feature/intel-persistent-memory "
     fi
 }
 
@@ -353,13 +408,13 @@ real_kernel()
         kernel_val=""
     elif [ "$kernel_val" = "std" ];then
     #   kernel_val="linux-yocto-dev"
-        if [ "$product" == "lin9" ];then
+        if [ "$product" == "lin9" -o "$product" = "lin8" ];then
             kernel_val="standard"
         else
             kernel_val="linux-yocto"
         fi
     elif [ "$kernel_val" = "rt" ];then
-        if [ "$product" == "lin9" ];then
+        if [ "$product" == "lin9" -o "$product" = "lin8" ];then
             kernel_val="preempt-rt"
         else
             kernel_val="linux-yocto-rt"
@@ -373,6 +428,9 @@ real_kernel()
     else
         echo "$kernel_val is wrong krenel type!!!MUST have [std|rt]"
         exit 1
+    fi
+    if [ "$next_f" = "yes" ];then
+        kernel_val=""
     fi
 }
 
@@ -475,6 +533,7 @@ inject_testing()
         echo "Without testing layer..."
     else
         echo "Not specified testing type,without any testing layers"
+        testing_type="none"
         no_testing
     fi
 }
@@ -482,6 +541,10 @@ inject_testing()
 product_select()
 {
     case $product in
+        lin8)
+               DVD_path="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL8/product_install/wrlinux-8"
+               DVD_rcpl="/folk/lpg-build/cdc/fast_prod/wrlinux80RCPL/"
+               ;;
         lin9)
                testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrl9-testing/wr-testing"
                DVD_path="/net/pek-hostel-deb04.wrs.com/buildarea1/nightly/WRL9/product_install/wrlinux-9"
@@ -500,7 +563,7 @@ product_select()
                ;;
         lts19)
                testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrlinux/wr-testing"
-               DVD_path="/lpg-build/cdc/fast_prod/WRL10_19/WRL10_19_GIT/wrlinux-10/"
+               DVD_path="/lpg-build/cdc/fast_prod/WRL10_19/WRL10_19_GIT/wrlinux-10"
                DVD_rcpl="/folk/lpg-build/cdc/fast_prod/WRL10_19/"
                ;;
         *)
@@ -516,7 +579,10 @@ git_dvd()
     
     if [ X"$wherego" == X"dvd" ];then
         echo "Will use DVD source..."
-        if [ "$product" == "lin9" ];then
+        if [ "$product" == "lin8" ];then
+            DVD_1=`ls -lrt $DVD_rcpl| tail -1|awk -F" " '{print $NF}'`
+            DVD_cmd="${DVD_1}/wrlinux/configure"
+        elif [ "$product" == "lin9" ];then
             DVD_1=`ls -lrt $DVD_rcpl| tail -1|awk -F" " '{print $NF}'`
             DVD="${DVD_1}/wrlinux-9"
             read -n1 -t 10 -p "$DVD ???[y]";echo ""
@@ -544,7 +610,11 @@ git_dvd()
         fi
     else
         echo "Will use GIT source..."
-        DVD=$DVD_path
+        if [ "$product" == "lin8" ];then
+            DVD_cmd="${DVD_path}/wrlinux/configure"
+        else
+            DVD=$DVD_path
+        fi
     fi
 }
 
@@ -605,7 +675,10 @@ local_conf()
     find_me_in_local
     bug_workaround
 
-    [ X"`grep "IMAGE_ROOTFS_EXTRA_SPACE" conf/local.conf`" = X"" ] && \
+    emit "BB_NUMBER_THREADS ?= \"24\""
+    emit "PARALLEL_MAKE ?= \"-j 24\""
+
+    [ X"`grep "IMAGE_ROOTFS_EXTRA_SPACE" conf/local.conf`" = X"" -a X"$testing_type" != X"none" ] && \
     emit 'IMAGE_ROOTFS_EXTRA_SPACE = "1024000"'
 }
 
@@ -618,7 +691,7 @@ build_cmd_log()
     echo " "
     echo "TEST_STEP"
     echo "$DVD/setup.sh --machines=$bsp_val --distros=$distros_val --dl-layers $EXTRA_full"
-    echo ". ./environment-setup-x86_64-wrlinuxsdk-linux"
+    [ "$product" != "lts19"  ] && echo ". ./environment-setup-x86_64-wrlinuxsdk-linux"
     echo ". ./oe-init-build-env build"
     if [ X"$testing_type" = X"bts" ];then
         echo "bitbake-layers add-layer ${testing_layer}/bts-dev"
@@ -647,12 +720,29 @@ build_cmd_log_post()
 
 check_after_build()
 {
+    current_time=`date +%s%N`
+    elapsing_time=$(($(($current_time - $start_time ))/60000000000))
     build_file=$1
     exec 6<&1 >> ../build.cmd
     echo " "
     echo "Filter error/warning from bitbake_build.log:"
     cat $build_file | grep -iE "^warning|^error" -b6
     echo " "
+    echo "List all bb and bbappend in $testing_type"
+    case "${testing_type}" in
+        bts)
+            find_p=${testing_layer}/bts-dev
+            ;;
+        kts)
+            find_p=${testing_layer}/kts-dev
+            ;;
+        *)
+            echo "Do nothing for non-bts/kts layer" 
+            ;;
+    esac
+    #find $find_p -name "*bb*"
+    echo " " 
+    echo $elapsing_time mintues
     exec 1<&6 6<&-
 }
 
@@ -669,7 +759,7 @@ get_build_pass()
 build_next()
 {
     pre_config
-    . ./environment-setup-x86_64-wrlinuxsdk-linux
+    [ "$product" != "lts19"  ] && . ./environment-setup-x86_64-wrlinuxsdk-linux
     . ./oe-init-build-env build
 
     emit " "
@@ -683,7 +773,7 @@ build_next()
     echo "bitbake $ROOTFS_TYPE"
     sleep 10
     bitbake $ROOTFS_TYPE 2>&1| tee bitbake_build.log
-
+     
     check_after_build bitbake_build.log
     get_build_pass
 }
@@ -698,7 +788,7 @@ cont_fast()
        exit 1
     else
         pre_config
-        . ./environment-setup-x86_64-wrlinuxsdk-linux
+        [ "$product" != "lts19"  ] && . ./environment-setup-x86_64-wrlinuxsdk-linux
         . ./oe-init-build-env build
         echo "bitbake $ROOTFS_TYPE"
         echo " " >> ../build.cmd
@@ -726,7 +816,7 @@ cont_fast()
 
 build_pacakage()
 {
-    results_packages=""
+    results_packages="\nSummary as below:"
     top_path=`readlink -f . 2>/dev/null`
     layers_path=`readlink -f layers 2>/dev/null`
     [ -z "$layers_path" ] && exit 1
@@ -736,7 +826,7 @@ build_pacakage()
         echo -n "In $layers_path/$meta ===>"
         cd $layers_path/$meta
         #changed_list=`git log --since=yesterday --pretty=oneline --numstat| grep -E "bb$|bbappend$"|awk -F"/" '{print $NF}'|sort|uniq`
-        changed_list=`git log --since=5.days --pretty=oneline --numstat| grep -E "bb$|bbappend$"|awk -F"/" '{print $NF}'|sort|uniq`
+        changed_list=`git log --since=${days}.days --pretty=oneline --numstat| grep -E "bb$|bbappend$"|awk -F"/" '{print $NF}'|sort|uniq`
         if [ -z "$changed_list" ];then
             :
             echo " N/A"
@@ -747,7 +837,7 @@ build_pacakage()
             echo "$changed_list"
             cd $top_path
             pre_config
-            . ./environment-setup-x86_64-wrlinuxsdk-linux
+            [ "$product" != "lts19"  ] && . ./environment-setup-x86_64-wrlinuxsdk-linux
             . ./oe-init-build-env build &> /dev/null
             for package_ver in $changed_list
             do
@@ -845,6 +935,7 @@ if [[ -z "$@" ]];then
     usage    
 fi
 
+start_time=`date +%s%N`
 barcode_check $@
 for opt1 in $@
 do
@@ -853,7 +944,9 @@ do
                       cont_fast
                       exit 0
                       ;;
-        package)           
+        package*)           
+                      days=$(echo $opt1 | awk -F"+" '{print $2}')
+                      days=${days:-5}
                       build_pacakage
                       exit 0
                       ;;
@@ -876,7 +969,7 @@ do
         deep)
                       deepdry_y="yes"
                       ;;
-        lin9|lts17|lts18|lts19)
+        lin8|lin9|lts17|lts18|lts19)
                       product=$opt1
                       ;;
         git|dvd)
@@ -898,7 +991,7 @@ do
         multilib)
                       multilib_f="yes"
                       ;;
-        tpm)
+        tpm|tmp2)
                       tpm_f="yes"
                       ;;
         sato)
@@ -907,8 +1000,26 @@ do
         kdump)
                       kdump_f="open_k"
                       ;;
+        docker)
+                      docker_f="yes"
+                      ;;
+        iperf|iperf3)
+                      iperf_f="yes"
+                      ;;
         dpdk)
                       dpdk_f="yes"
+                      ;;
+        sb)
+                      sb_f="yes"
+                      ;;
+        zyn_sb)
+                      zynqmp_f="yes"
+                      ;;
+        scp)
+                      scp_f="yes"
+                      ;;
+        ostree)
+                      ostree_f="yes"
                       ;;
         small)
                       small_f="yes"
@@ -925,6 +1036,9 @@ do
         force)
                       force_f="yes"
                       ;;
+        next)
+                      next_f="yes"
+                      ;;
         ultimate|*)
                       bsp_val_org+="$opt1 "
                       ;;
@@ -938,6 +1052,14 @@ remember_his
 product_select
 real_kernel
 git_dvd
+
+if [ "$product" == "lin8" ];then
+    echo "$DVD_cmd --enable-board=$bsp_val --enable-kernel=$kernel_val --enable-rootfs=glibc-std --enable-reconfig=yes"
+    $DVD_cmd --enable-board=$bsp_val --enable-kernel=$kernel_val --enable-rootfs=glibc-std --enable-reconfig=yes
+    make fs 2>&1| tee make_fs_build.log
+    echo Done
+    exit    
+fi
 
 [ "$force_f" == "yes" ] && force_bsp_harvest
 
