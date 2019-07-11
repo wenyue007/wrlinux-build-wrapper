@@ -1,6 +1,7 @@
 #! /bin/bash -
 #Owner: Jianwei.Hu@windriver.com
 
+toolchain="glibc-"
 sendmail="sendmail_new.py"
 bsp_val=""
 barcode=""
@@ -16,9 +17,12 @@ sato_f="no"
 dpdk_f="no"
 kdump_f="no"
 docker_f="no"
+lxc_f="no"
 nodistro_f="no"
 force_f="no"
 next_f="no"
+xfce_f="no"
+plan_f="no"
 EXTRA_CMD="--accept-eula=yes"
 EXTRA_templates="--templates "
 EXTRA_layers="--layers "
@@ -84,6 +88,19 @@ pre_config()
 {
     #empty BBPATH in this sub-shell
     export BBPATH=""
+}
+
+use_testing_plan()
+{
+   if [ X"$plan_f" == X"yes" -a X"$testing_type" != X"none" ];then
+       echo "will use plan.ini in parent dir..."
+       if [ ! -f ../plan.ini ];then 
+           echo "Warning: No such file, will use default plan from git repo!!!"
+       else
+           cp ../plan.ini customized_test_plan.ini
+           emit 'ACTIVE_PLAN = "customized_test_plan.ini"'     
+       fi
+   fi   
 }
 
 barcode_check()
@@ -176,7 +193,7 @@ cgl|ovp|sato|small distros:
                    wrlinux-ovp(wrlinux-image-ovp-kvm, no specified kernel, use default),
                    wrlinux-std-sato(wrlinux-image-glibc-std-sato),
                    wrlinux-small(wrlinux-image-glibc-small).
-
+                   
 nodistro           distros:nodistro(core-image-base).
 
 multilib           distros:wrlinux(lib32-wrlinux-image-glibc-std).
@@ -213,8 +230,8 @@ exit 1
 #This emit() will set your setting into conf/local.conf
 emit()
 {
-    #for " emit ' XXX '
-    #for ' emit " XXX "
+    #for ", emit ' XXX '
+    #for ', emit " XXX "
 cat << EOF >> conf/local.conf
 $@
 EOF
@@ -227,7 +244,13 @@ EOF
 #    echo "Adding $FUNCNAME into conf/local.conf..."
 #    echo "Added $FUNCNAME into conf/local.conf"
 
+###################################################
+#                                                 #
+#          append in conf/local.conf              #
+#                                                 #
+###################################################                     
 
+#iperf/iperf3
 image_install_append_iperf3()
 {
     if [ X"$iperf_f" == X"yes" ];then
@@ -237,6 +260,7 @@ image_install_append_iperf3()
     fi
 }
 
+#dpdk
 image_install_append_dpdk-examples-test()
 {
     echo "Will add $FUNCNAME into conf/local.conf"
@@ -247,12 +271,14 @@ image_install_append_dpdk-examples-test()
     fi
 }
 
+#bb
 bb_network()
 {
     if [ X"$bb_f" == X"yes" ];then
         emit 'BB_NO_NETWORK = "0"'
     fi
 }
+
 bug_workaround()
 {
     echo "Will do bug workaround into conf/local.conf"
@@ -283,7 +309,32 @@ PNWHITELIST_networking-layer += 'libtdb'
 
 }
 
+###################################################
+#                                                 #
+#          templates and layers                   #
+#                                                 #
+#require templates/feature/extra/template.conf    #
+###################################################                     
+#xfce
 #If you want to add some extra options into setup.sh, please add below similar function.
+select_template_xfce()
+{
+    if [ X"$xfce_f" == X"yes" ];then
+        echo "Setting xfce template..."
+        EXTRA_templates=$EXTRA_templates" feature/xfce "
+    fi
+}
+
+#lxc
+select_template_lxc()
+{
+    if [ X"$lxc_f" == X"yes" ];then
+        echo "Setting lxc template..."
+        EXTRA_templates=$EXTRA_templates" feature/lxc "
+    fi
+}
+
+#docker
 select_template_docker()
 {
     if [ X"$docker_f" == X"yes" ];then
@@ -292,6 +343,7 @@ select_template_docker()
     fi
 }
 
+#kdump
 select_template_kdump()
 {
     if [ X"$kdump_f" == X"open_k" ];then
@@ -308,6 +360,7 @@ select_template_intel-persistent-memory()
     fi
 }
 
+#ostree
 select_template_ostree()
 {
     if [ X"$ostree_f" == X"yes" ];then
@@ -317,6 +370,8 @@ select_template_ostree()
     fi
 }
 
+#sb
+#enable efi-secure-boot
 select_template_sb()
 {
     if [ X"$sb_f" == X"yes" ];then
@@ -325,6 +380,7 @@ select_template_sb()
     fi
 }
 
+#scp
 select_template_scp()
 {
     if [ X"$scp_f" == X"yes" ];then
@@ -333,14 +389,16 @@ select_template_scp()
     fi
 }
 
+#next
 select_template_next()
 {
     if [ X"$next_f" == X"yes" ];then
         echo "Setting linux-yocto-dev(next) template..."
-        EXTRA_templates=$EXTRA_templates" feature/linux-yocto-dev "
+        EXTRA_templates=$EXTRA_templates" feature/linux-yocto-dev feature/userspace-next feature/toolchain-next"
     fi
 }
 
+#tpm
 select_template_tpm()
 {
     if [ X"$tpm_f" == X"yes" ];then
@@ -349,6 +407,7 @@ select_template_tpm()
     fi
 }
 
+#zyn_sb
 select_template_zynqmp-secure-boot()
 {
     if [ X"$zynqmp_f" == X"yes" ];then
@@ -357,6 +416,7 @@ select_template_zynqmp-secure-boot()
     fi
 }
 
+#dpdk
 select_template_dpdk()
 {
     if [ X"$dpdk_f" == X"yes" ];then
@@ -565,6 +625,7 @@ product_select()
                testing_layer="/net/pek-lpgtest15/buildarea1/jhu2/wrlinux/wr-testing"
                DVD_path="/lpg-build/cdc/fast_prod/WRL10_19/WRL10_19_GIT/wrlinux-10"
                DVD_rcpl="/folk/lpg-build/cdc/fast_prod/WRL10_19/"
+               toolchain=""
                ;;
         *)
                echo "please input correct product...[lin9|lts17|lts18|lts19]"
@@ -623,7 +684,7 @@ select_dist_rootfs()
     if [ X"$cgl_f" = X"yes" ];then
         echo "Setting cgl distro..."
         distros_val="wrlinux-cgl"
-        ROOTFS_TYPE="wrlinux-image-glibc-cgl"
+        ROOTFS_TYPE="wrlinux-image-${toolchain}cgl"
     elif [ X"$ovp_f" = X"yes" ];then
         echo "setting ovp distro..."
         distros_val="wrlinux-ovp"
@@ -635,20 +696,20 @@ select_dist_rootfs()
     elif [ X"$small_f" = X"yes" ];then
         echo "setting wrlinux-small distro..."
         distros_val="wrlinux-small"
-        ROOTFS_TYPE="wrlinux-image-glibc-small"
+        ROOTFS_TYPE="wrlinux-image-${toolchain}small"
     elif [ X"$sato_f" = X"yes" ];then
         echo "setting sato distro..."
         distros_val="wrlinux-std-sato"
-        ROOTFS_TYPE="wrlinux-image-glibc-std-sato"
+        ROOTFS_TYPE="wrlinux-image-${toolchain}std-sato"
     elif [ X"$multilib_f" = X"yes" ]; then
         echo "Setting 32bit multilib wrlinux..."
         sleep 5
         distros_val="wrlinux"
-        ROOTFS_TYPE="lib32-wrlinux-image-glibc-std"
+        ROOTFS_TYPE="lib32-wrlinux-image-${toolchain}std"
     else
         echo "Setting base linux testing..."
         distros_val="wrlinux"
-        ROOTFS_TYPE="wrlinux-image-glibc-std"
+        ROOTFS_TYPE="wrlinux-image-${toolchain}std"
     fi
 
 }
@@ -675,11 +736,14 @@ local_conf()
     find_me_in_local
     bug_workaround
 
+    emit "SSTATE_MIRRORS ?= \"file://.* http://pek-lpggp5.wrs.com/buildarea1/WRL1019_PUBLIC_SSTATE/SSTATE-`date +%Y%m%d`/x86-next/sstate_all/PATH\""
+    emit "SSTATE_MIRROR_ALLOW_NETWORK ?= \"1\""
+
     emit "BB_NUMBER_THREADS ?= \"24\""
     emit "PARALLEL_MAKE ?= \"-j 24\""
 
     [ X"`grep "IMAGE_ROOTFS_EXTRA_SPACE" conf/local.conf`" = X"" -a X"$testing_type" != X"none" ] && \
-    emit 'IMAGE_ROOTFS_EXTRA_SPACE = "1024000"'
+    emit 'IMAGE_ROOTFS_EXTRA_SPACE = "256000"'
 }
 
 build_cmd_log()
@@ -767,6 +831,9 @@ build_next()
 
     inject_testing
     local_conf
+    #customized_test_plan.ini
+    use_testing_plan
+
     build_cmd_log_post
     
     [ X"$deepdry_y" == X"yes" ] && exit 0
@@ -781,7 +848,8 @@ build_next()
 cont_fast()
 {
     [ -f build.cmd ] && ROOTFS_TYPE=`cat build.cmd | grep  "^bitbake "|awk -F" " '{print $2}'`
-    ROOTFS_TYPE=${ROOTFS_TYPE:-wrlinux-image-glibc-std}
+    #ROOTFS_TYPE=${ROOTFS_TYPE:-wrlinux-image-glibc-std}
+    ROOTFS_TYPE=${ROOTFS_TYPE:-wrlinux-image-${toolchain}std}
     echo "The ROOTFS_TYPE: $ROOTFS_TYPE"
     if [ ! -d build ]; then
        echo "Not found build dir, exit..." 
@@ -809,7 +877,7 @@ cont_fast()
         check_after_build bitbake_build_rebuild.log
         testing_type="re"
         [ X"$new" != X"FAILED" ] && deploy_board 
-        python ~/scripts/$sendmail "$new" "$testing_type"
+        python /folk/jhu2/scripts/$sendmail "$new" "$testing_type"
    fi
 
 }
@@ -861,7 +929,9 @@ build_pacakage()
     echo -e "$results_packages"
 }
 
-find_me_setup()
+
+#pick up all templates and layers according to given flag
+find_me_in_setup()
 {
     echo "Will do smart find for appending extra templates/layers into setup.sh..."
     i=0
@@ -883,6 +953,7 @@ find_me_setup()
     done
 }
 
+#pick up all packages according to given flag
 find_me_in_local()
 {
     echo "Will do specified image append into conf/local.conf"
@@ -909,8 +980,10 @@ find_me_in_local()
 verify_templates_layers()
 {
     echo "Verifying appended templates and layers..."
-    num_tem=`echo "$EXTRA_templates" |awk -F "" '{print NF}'`
-    num_ly=`echo "$EXTRA_layers" |awk -F "" '{print NF}'`
+    #num_tem=`echo "$EXTRA_templates" |awk -F "" '{print NF}'`
+    #num_ly=`echo "$EXTRA_layers" |awk -F "" '{print NF}'`
+    num_tem=`expr length "$EXTRA_templates"`
+    num_ly=`expr length "$EXTRA_layers"`
     echo num_templates: $num_tem,$EXTRA_templates
     echo num_layers: $num_ly,$EXTRA_layers
     #echo "Formating the output..."
@@ -1000,6 +1073,9 @@ do
         kdump)
                       kdump_f="open_k"
                       ;;
+        lxc)
+                      lxc_f="yes"
+                      ;;
         docker)
                       docker_f="yes"
                       ;;
@@ -1011,6 +1087,9 @@ do
                       ;;
         sb)
                       sb_f="yes"
+                      ;;
+        xfce)
+                      xfce_f="yes"
                       ;;
         zyn_sb)
                       zynqmp_f="yes"
@@ -1029,6 +1108,9 @@ do
                       ;;
         bb)
                       bb_f="yes"
+                      ;;
+        plan)
+                      plan_f="yes"
                       ;;
         [0-9]*[0-9])
                       barcode="$opt1"
@@ -1063,7 +1145,7 @@ fi
 
 [ "$force_f" == "yes" ] && force_bsp_harvest
 
-find_me_setup
+find_me_in_setup
 
 select_dist_rootfs
 
